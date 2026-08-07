@@ -11,10 +11,11 @@
 <p align="center">
   <a href="./README.zh-CN.md">简体中文</a>
   ·
-  <a href="https://github.com/chauyinn/khinfetch/actions/workflows/ci.yml">CI</a>
-  ·
   <a href="./LICENSE">GPL-3.0-or-later</a>
 </p>
+
+> [!NOTE]
+> This README was generated with AI assistance.
 
 > [!IMPORTANT]
 > khinfetch is an independent, unofficial client. It is not affiliated with, endorsed by, or maintained by Khinsider. The project does not grant any rights to music, artwork, metadata, or other third-party content. You are responsible for ensuring that your use and downloads are lawful and comply with the applicable website terms.
@@ -28,6 +29,16 @@
 - Pause, resume, retry, cancel, and inspect persistent download jobs.
 - Recover interrupted jobs from the SQLite-backed queue.
 - Use the interface in English or Simplified Chinese, with light, dark, and system themes.
+
+## Screenshots
+
+### Search
+
+![khinfetch search interface](./docs/images/search.png)
+
+### Download queue
+
+![khinfetch download queue](./docs/images/downloads.png)
 
 ## Status
 
@@ -74,6 +85,7 @@ Unsigned local bundles are written under `src-tauri/target/release/bundle/` when
 - `src/api/generated/`: TypeScript types mirrored from Rust DTOs
 - `src/i18n/`: Simplified Chinese and English interface strings
 - `src/assets/`: frontend and documentation assets
+- `docs/images/`: screenshots used in the README files
 - `src-tauri/src/`: Rust commands, downloads, parsing, storage, logging, and filesystem logic
 - `src-tauri/migrations/`: SQLite migrations
 - `src-tauri/icons/`: platform-specific Tauri bundle icons

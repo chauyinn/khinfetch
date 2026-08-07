@@ -11,10 +11,11 @@
 <p align="center">
   <a href="./README.md">English</a>
   ·
-  <a href="https://github.com/chauyinn/khinfetch/actions/workflows/ci.yml">CI</a>
-  ·
   <a href="./LICENSE">GPL-3.0-or-later</a>
 </p>
+
+> [!NOTE]
+> 本 README 由 AI 辅助生成
 
 > [!IMPORTANT]
 > khinfetch 是独立开发的非官方客户端，与 Khinsider 不存在从属、授权、认可或维护关系。本项目不会授予用户对音乐、封面、元数据或其他第三方内容的任何权利。用户有责任确保其使用和下载行为合法，并遵守相关网站条款。
@@ -28,6 +29,16 @@
 - 暂停、恢复、重试、取消并查看持久化下载任务。
 - 通过 SQLite 下载队列恢复意外中断的任务。
 - 支持简体中文和英文界面，以及浅色、深色和跟随系统主题。
+
+## 界面截图
+
+### 搜索
+
+![khinfetch 搜索界面](./docs/images/search.png)
+
+### 下载队列
+
+![khinfetch 下载队列](./docs/images/downloads.png)
 
 ## 项目状态
 
@@ -74,6 +85,7 @@ pnpm tauri build
 - `src/api/generated/`：与 Rust DTO 对应的 TypeScript 类型
 - `src/i18n/`：简体中文和英文界面文案
 - `src/assets/`：前端及文档资源
+- `docs/images/`：README 使用的界面截图
 - `src-tauri/src/`：Rust 命令、下载、解析、存储、日志和文件系统逻辑
 - `src-tauri/migrations/`：SQLite 迁移
 - `src-tauri/icons/`：Tauri 各平台安装包图标
