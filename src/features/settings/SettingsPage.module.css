@@ -1,0 +1,222 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  gap: 16px;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.section {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sectionTitle {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 10px;
+}
+
+.settingRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  font-size: var(--font-size-sm);
+}
+
+.settingLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settingName {
+  font-weight: 500;
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settingDesc {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.inputGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.textInput {
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  width: 260px;
+  outline: none;
+}
+
+.button {
+  background-color: var(--bg-surface-active);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color var(--transition-fast);
+}
+
+.button:hover {
+  background-color: var(--bg-surface-hover);
+}
+
+/* Radix Switch Custom Styling */
+.switchRoot {
+  width: 42px;
+  height: 24px;
+  background-color: var(--border-strong);
+  border-radius: 12px;
+  position: relative;
+  transition: background-color var(--transition-fast);
+  cursor: pointer;
+}
+
+.switchRoot[data-state="checked"] {
+  background-color: var(--color-accent);
+}
+
+.switchThumb {
+  display: block;
+  width: 18px;
+  height: 18px;
+  background-color: #ffffff;
+  border-radius: 50%;
+  transition: transform var(--transition-fast);
+  transform: translateX(3px);
+  will-change: transform;
+}
+
+.switchThumb[data-state="checked"] {
+  transform: translateX(21px);
+}
+
+.segmentedControl {
+  display: inline-flex;
+  background-color: var(--bg-surface-active);
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  gap: 2px;
+}
+
+.segmentBtn {
+  padding: 4px 10px;
+  border-radius: var(--radius-xs);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.segmentBtnActive {
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+.numberStepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stepperBtn {
+  width: 28px;
+  height: 28px;
+  background-color: var(--bg-surface-active);
+  border-radius: var(--radius-xs);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
+
+.stepperValue {
+  font-weight: 600;
+  min-width: 24px;
+  text-align: center;
+}
+
+.aboutHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.aboutIdentity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.aboutLogo {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  object-fit: contain;
+}
+
+.aboutTitleLine {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.aboutName {
+  color: var(--text-primary);
+  font-size: var(--font-size-md);
+  font-weight: 700;
+}
+
+.version {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+.aboutDesc {
+  margin: 0;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.aboutInlineLink {
+  display: inline;
+  color: var(--color-accent);
+  font: inherit;
+  font-weight: 500;
+  vertical-align: baseline;
+}
+
+.aboutInlineLink:hover {
+  text-decoration: underline;
+}

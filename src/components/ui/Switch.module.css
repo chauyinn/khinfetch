@@ -1,0 +1,47 @@
+.switchRoot {
+  all: unset;
+  width: 42px !important;
+  height: 24px !important;
+  min-width: 42px !important;
+  min-height: 24px !important;
+  background-color: var(--border-strong);
+  border-radius: 12px;
+  position: relative;
+  transition: background-color var(--transition-fast);
+  cursor: pointer;
+  display: inline-block !important;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  outline: none;
+}
+
+.switchRoot:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-accent-subtle), 0 0 0 4px var(--color-accent);
+}
+
+.switchRoot[data-state="checked"] {
+  background-color: var(--color-accent);
+}
+
+.switchRoot[data-disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.switchThumb {
+  display: block;
+  width: 18px !important;
+  height: 18px !important;
+  background-color: #ffffff;
+  border-radius: 50%;
+  transition: transform var(--transition-fast);
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  box-shadow: var(--shadow-sm);
+  will-change: transform;
+}
+
+.switchRoot[data-state="checked"] .switchThumb {
+  transform: translateX(18px);
+}

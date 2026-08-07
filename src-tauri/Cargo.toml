@@ -1,0 +1,43 @@
+[package]
+name = "khinfetch"
+version = "0.1.0"
+description = "A reliable cross-platform Khinsider download manager"
+authors = ["khinfetch contributors"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/chauyinn/khinfetch"
+rust-version = "1.97"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "khinfetch_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.5", features = [] }
+tauri-plugin-dialog = "2.7.2"
+tauri-plugin-opener = "2.5.4"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "http2", "charset", "stream", "gzip", "brotli", "deflate"] }
+tokio = { version = "1.53.1", features = ["sync", "time", "macros", "rt-multi-thread", "fs", "io-util"] }
+tokio-util = { version = "0.7.19", features = ["rt"] }
+futures-util = "0.3.33"
+uuid = { version = "1.24.0", features = ["v4", "v5", "serde"] }
+scraper = "0.27.0"
+thiserror = "2.0.19"
+url = "2.5.8"
+regex = "1.13.1"
+percent-encoding = "2.3.2"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+tracing-appender = "0.2.5"
+sqlx = { version = "0.9.0", default-features = false, features = ["sqlite", "runtime-tokio", "migrate", "macros"] }
