@@ -15,7 +15,7 @@
 </p>
 
 > [!NOTE]
-> This README was generated with AI assistance.
+> This project and README were generated with AI assistance.
 
 > [!IMPORTANT]
 > khinfetch is an independent, unofficial client. It is not affiliated with, endorsed by, or maintained by Khinsider. The project does not grant any rights to music, artwork, metadata, or other third-party content. You are responsible for ensuring that your use and downloads are lawful and comply with the applicable website terms.
