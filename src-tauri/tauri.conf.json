@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "khinfetch",
+  "productName": "KhinFetch",
   "version": "0.1.0",
   "identifier": "com.khinfetch.desktop",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "khinfetch",
+        "title": "KhinFetch",
         "width": 1180,
         "height": 760,
         "minWidth": 900,

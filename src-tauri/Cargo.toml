@@ -2,7 +2,7 @@
 name = "khinfetch"
 version = "0.1.0"
 description = "A reliable cross-platform Khinsider download manager"
-authors = ["khinfetch contributors"]
+authors = ["KhinFetch contributors"]
 license = "GPL-3.0-or-later"
 repository = "https://github.com/chauyinn/khinfetch"
 rust-version = "1.97"

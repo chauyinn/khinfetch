@@ -1,8 +1,8 @@
-# khinfetch Development Guide
+# KhinFetch Development Guide
 
 ## Project Overview
 
-- khinfetch 是基于 Tauri 2、React、TypeScript 和 Rust 的跨平台桌面下载管理器。
+- KhinFetch 是基于 Tauri 2、React、TypeScript 和 Rust 的跨平台桌面下载管理器。
 - 前端使用 pnpm、Vite、Zustand、Radix UI、Lucide 和 CSS Modules；Rust 后端负责网络请求、HTML 解析、下载、SQLite、日志和文件系统操作。
 - 前端通过 `src/api/client.ts` 中的 `BackendClient` 与后端通信，不在组件或 store 中直接调用 Tauri IPC。
 - Rust 公共 DTO 位于 `src-tauri/src/domain/`，`src/api/generated/` 中的 TypeScript 类型必须与其保持一致。

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="./src/assets/logo.png" width="96" height="96" alt="khinfetch 标志" />
+  <img src="./src/assets/logo.png" width="96" height="96" alt="KhinFetch 标志" />
 </p>
 
-<h1 align="center">khinfetch</h1>
+<h1 align="center">KhinFetch</h1>
 
 <p align="center">
   面向 Khinsider 游戏音乐原声资源的非官方跨平台桌面下载管理器。
@@ -18,7 +18,7 @@
 > 本项目和 README 由 AI 辅助生成
 
 > [!IMPORTANT]
-> khinfetch 是独立开发的非官方客户端，与 Khinsider 不存在从属、授权、认可或维护关系。本项目不会授予用户对音乐、封面、元数据或其他第三方内容的任何权利。用户有责任确保其使用和下载行为合法，并遵守相关网站条款。
+> KhinFetch 是独立开发的非官方客户端，与 Khinsider 不存在从属、授权、认可或维护关系。本项目不会授予用户对音乐、封面、元数据或其他第三方内容的任何权利。用户有责任确保其使用和下载行为合法，并遵守相关网站条款。
 
 ## 功能
 
@@ -34,15 +34,17 @@
 
 ### 搜索
 
-![khinfetch 搜索界面](./docs/images/search.png)
+![KhinFetch 搜索界面](./docs/images/search.png)
 
 ### 下载队列
 
-![khinfetch 下载队列](./docs/images/downloads.png)
+![KhinFetch 下载队列](./docs/images/downloads.png)
 
 ## 项目状态
 
-khinfetch 仍在积极开发中。源码构建面向 Windows、macOS 和 Linux，CI 会在三个平台上进行编译验证。GitHub Releases 可能提供预构建安装包；除非具体版本另有说明，这些安装包目前不含代码签名。
+KhinFetch 仍在积极开发中。源码构建面向 Windows、macOS 和 Linux，CI 会在三个平台上进行编译验证。GitHub Releases 可能提供预构建安装包；除非具体版本另有说明，这些安装包目前不含代码签名。
+
+Windows 版本还会提供 portable ZIP 压缩包，解压后直接运行 `KhinFetch.exe` 即可，无需安装。免安装版仍会将设置、数据库和日志写入当前用户的应用数据目录。
 
 ## 开发
 
@@ -104,10 +106,10 @@ pnpm tauri build
 
 ## 许可证
 
-版权所有 (C) 2026 khinfetch contributors。
+版权所有 (C) 2026 KhinFetch contributors。
 
-除非文件中另有说明，本仓库内 khinfetch 的原创源代码及项目自有资产均依据 **GNU 通用公共许可证第 3 版或任何后续版本**（`GPL-3.0-or-later`）授权。你可以按照该许可证使用、研究、修改和再分发 khinfetch。分发修改版本或二进制文件时，必须遵守 GPL，包括适用的对应源代码提供义务。
+除非文件中另有说明，本仓库内 KhinFetch 的原创源代码及项目自有资产均依据 **GNU 通用公共许可证第 3 版或任何后续版本**（`GPL-3.0-or-later`）授权。你可以按照该许可证使用、研究、修改和再分发 KhinFetch。分发修改版本或二进制文件时，必须遵守 GPL，包括适用的对应源代码提供义务。
 
-khinfetch 按“原样”提供，**不附带任何保证**，包括但不限于适销性或特定用途适用性的默示保证。完整许可证文本见 [LICENSE](./LICENSE)。
+KhinFetch 按“原样”提供，**不附带任何保证**，包括但不限于适销性或特定用途适用性的默示保证。完整许可证文本见 [LICENSE](./LICENSE)。
 
-第三方依赖以及从外部服务取得的内容仍分别受其自身许可证、著作权和条款约束。khinfetch 的开源许可证不会对这些第三方内容重新授权，也不会授予用户相关内容权利。
+第三方依赖以及从外部服务取得的内容仍分别受其自身许可证、著作权和条款约束。KhinFetch 的开源许可证不会对这些第三方内容重新授权，也不会授予用户相关内容权利。

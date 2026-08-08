@@ -68,7 +68,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           <div>
             <div className={styles.brand}>
               <img className={styles.brandIcon} src={logo} alt="" aria-hidden="true" />
-              <span className={styles.brandTitle}>khinfetch</span>
+              <span className={styles.brandTitle}>KhinFetch</span>
             </div>
 
             <nav className={styles.nav} aria-label={strings.a11y.mainNavigation}>

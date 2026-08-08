@@ -126,9 +126,9 @@ export const strings = {
     btnOpenLogs: "Open logs folder",
   },
   about: {
-    sectionTitle: "About khinfetch",
-    title: "khinfetch",
-    descBeforeOfficial: "khinfetch is an unofficial desktop download manager for game soundtracks on",
+    sectionTitle: "About KhinFetch",
+    title: "KhinFetch",
+    descBeforeOfficial: "KhinFetch is an unofficial desktop download manager for game soundtracks on",
     descBeforeReference: ". It was built with Tauri 2 + React and inspired by the open-source project ",
     descAfterReference: ".",
     officialSite: "Khinsider",

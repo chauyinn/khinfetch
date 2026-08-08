@@ -122,9 +122,9 @@ export const strings = {
     btnOpenLogs: "打开日志目录",
   },
   about: {
-    sectionTitle: "关于 khinfetch",
-    title: "khinfetch",
-    descBeforeOfficial: "khinfetch 是一款基于 Tauri 2 + React 打造的",
+    sectionTitle: "关于 KhinFetch",
+    title: "KhinFetch",
+    descBeforeOfficial: "KhinFetch 是一款基于 Tauri 2 + React 打造的",
     descBeforeReference: " 游戏音乐原声专辑桌面下载管理器，项目实现参考了开源项目 ",
     descAfterReference: "。",
     officialSite: "Khinsider",

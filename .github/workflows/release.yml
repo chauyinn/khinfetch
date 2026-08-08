@@ -195,13 +195,36 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: khinfetch v${{ needs.validate.outputs.version }}
+          releaseName: KhinFetch v${{ needs.validate.outputs.version }}
           releaseBody: |
-            Automated builds for khinfetch ${{ github.ref_name }}.
+            Automated builds for KhinFetch ${{ github.ref_name }}.
 
+            Windows releases include an installer and a portable ZIP archive.
             These packages are not code-signed unless this release explicitly states otherwise.
           releaseDraft: true
           prerelease: false
           generateReleaseNotes: true
           retryAttempts: 2
           args: ${{ matrix.args }}
+
+      - name: Create and upload Windows portable archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $source = "src-tauri/target/release/khinfetch.exe"
+          if (-not (Test-Path -LiteralPath $source)) {
+            throw "Windows executable not found at $source"
+          }
+
+          $staging = Join-Path $env:RUNNER_TEMP "KhinFetch-portable"
+          $archive = Join-Path $env:RUNNER_TEMP "KhinFetch_$($env:RELEASE_VERSION)_windows_x64_portable.zip"
+          New-Item -ItemType Directory -Path $staging -Force | Out-Null
+          Copy-Item -LiteralPath $source -Destination (Join-Path $staging "KhinFetch.exe")
+          Copy-Item -LiteralPath "LICENSE" -Destination (Join-Path $staging "LICENSE")
+          Compress-Archive -Path (Join-Path $staging "*") -DestinationPath $archive -Force
+
+          gh release upload "${{ github.ref_name }}" $archive --clobber
