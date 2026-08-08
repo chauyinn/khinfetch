@@ -5,6 +5,7 @@ export type NavTab = "search" | "downloads" | "settings";
 
 interface AppState {
   activeTab: NavTab;
+  mountedTabs: Record<NavTab, boolean>;
   setActiveTab: (tab: NavTab) => void;
   
   themeSetting: ThemePreference;
@@ -58,7 +59,16 @@ export const useAppStore = create<AppState>((set, get) => {
 
   return {
     activeTab: "search",
-    setActiveTab: (activeTab) => set({ activeTab }),
+    mountedTabs: {
+      search: true,
+      downloads: false,
+      settings: false,
+    },
+    setActiveTab: (activeTab) =>
+      set((state) => ({
+        activeTab,
+        mountedTabs: { ...state.mountedTabs, [activeTab]: true },
+      })),
 
     themeSetting: initialSetting,
     effectiveTheme: initialEffective,
