@@ -15,6 +15,11 @@ dist-ssr
 .env.*
 !.env.example
 
+# Tauri icon outputs for platforms not currently targeted
+src-tauri/icons/64x64.png
+src-tauri/icons/android/
+src-tauri/icons/ios/
+
 # Editor directories and files
 .vscode
 .idea
