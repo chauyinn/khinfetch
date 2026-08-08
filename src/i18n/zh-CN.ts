@@ -96,7 +96,7 @@ export const strings = {
     dirUnset: "未设置 (使用默认系统下载路径)",
     btnChooseDir: "选择路径",
     btnOpenDir: "打开目录",
-    concurrencyLabel: "最大并行下载数 (Concurrency)",
+    concurrencyLabel: "最大并行下载数",
     concurrencyDesc: "允许同时下载的并发数 (1 ~ 8)",
     preferenceSection: "格式与校验偏好",
     qualityLabel: "默认下载音质",
