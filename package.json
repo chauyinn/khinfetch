@@ -1,7 +1,7 @@
 {
   "name": "khinfetch",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "An unofficial cross-platform download manager for Khinsider",
   "license": "GPL-3.0-or-later",
   "repository": {
