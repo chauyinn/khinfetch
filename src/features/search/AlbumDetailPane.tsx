@@ -57,7 +57,7 @@ export const AlbumDetailPane: React.FC<AlbumDetailPaneProps> = ({ details, isLoa
   const quality = qualityOverride ?? settings?.preferredQuality ?? "bestAvailable";
   const selectedTrackIds = useMemo(() => new Set(selectedTrackIdList), [selectedTrackIdList]);
   const [isEnqueuing, setIsEnqueuing] = useState(false);
-  const selectionAnchorRef = useRef<string | null>(null);
+  const selectionAnchorRef = useRef<{ trackId: string; selected: boolean } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const previewCacheRef = useRef(new Map<string, TrackPreview>());
   const previewRequestRef = useRef(0);
@@ -147,25 +147,31 @@ export const AlbumDetailPane: React.FC<AlbumDetailPaneProps> = ({ details, isLoa
 
   const toggleTrack = (id: string, shiftKey = false) => {
     const next = new Set(selectedTrackIds);
-    if (shiftKey && selectionAnchorRef.current) {
-      const anchorIndex = tracks.findIndex((track) => track.id === selectionAnchorRef.current);
+    const anchor = selectionAnchorRef.current;
+    if (shiftKey && anchor) {
+      const anchorIndex = tracks.findIndex((track) => track.id === anchor.trackId);
       const targetIndex = tracks.findIndex((track) => track.id === id);
       if (anchorIndex >= 0 && targetIndex >= 0) {
         const start = Math.min(anchorIndex, targetIndex);
         const end = Math.max(anchorIndex, targetIndex);
         for (let index = start; index <= end; index += 1) {
-          next.add(tracks[index].id);
+          if (anchor.selected) {
+            next.add(tracks[index].id);
+          } else {
+            next.delete(tracks[index].id);
+          }
         }
         setSelectedTrackIds(Array.from(next));
         return;
       }
     }
-    if (next.has(id)) {
-      next.delete(id);
-    } else {
+    const shouldSelect = !next.has(id);
+    if (shouldSelect) {
       next.add(id);
+    } else {
+      next.delete(id);
     }
-    selectionAnchorRef.current = id;
+    selectionAnchorRef.current = { trackId: id, selected: shouldSelect };
     setSelectedTrackIds(Array.from(next));
   };
 

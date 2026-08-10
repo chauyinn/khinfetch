@@ -405,6 +405,11 @@
   width: min(320px, 52%);
   height: 30px;
   flex-shrink: 0;
+  color-scheme: light;
+}
+
+:global([data-theme="dark"]) .previewAudio {
+  color-scheme: dark;
 }
 
 .previewButton {
