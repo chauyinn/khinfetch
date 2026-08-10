@@ -80,6 +80,7 @@ export const strings = {
     currentDownloading: (title: string) => `Downloading: ${title}`,
     errorMessage: (msg: string) => `Error: ${msg}`,
     stateDownloading: "Downloading",
+    stateWaiting: "Waiting for same file",
     stateCompleted: "Completed",
     statePaused: "Paused",
     stateInterrupted: "Interrupted",

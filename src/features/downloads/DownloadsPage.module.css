@@ -78,7 +78,8 @@
 }
 
 .jobMain {
-  display: flex;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 92px;
   align-items: center;
   gap: 14px;
 }
@@ -97,7 +98,6 @@
 }
 
 .jobInfo {
-  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -175,19 +175,34 @@
 }
 
 .progressRow {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4ch 9rem;
   align-items: center;
-  gap: 12px;
+  column-gap: 10px;
   font-size: var(--font-size-xs);
   color: var(--text-secondary);
 }
 
 .progressBarTrack {
-  flex: 1;
   height: 6px;
   background-color: var(--bg-surface-active);
   border-radius: 3px;
   overflow: hidden;
+}
+
+.progressPercent,
+.progressTracks {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.progressPercent {
+  text-align: right;
+}
+
+.progressTracks {
+  padding-left: 10px;
+  text-align: left;
 }
 
 .progressBarFill {
@@ -199,6 +214,7 @@
 .jobControls {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
 }
 

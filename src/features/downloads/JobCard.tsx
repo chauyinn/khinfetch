@@ -15,6 +15,7 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
   const { pauseJob, resumeJob, cancelJob, retryJob, removeJob } = useJobsStore();
 
   const { album, quality, state, selectedTrackTitles = [], completedTracks, totalTracks, error } = job;
+  const isRunning = state === "downloading" || state === "resolving" || state === "waiting" || state === "queued";
   const progressPercent = totalTracks > 0 ? Math.round((completedTracks / totalTracks) * 100) : 0;
   const previewTitles = selectedTrackTitles.slice(0, 2);
   const remainingTracks = Math.max(0, totalTracks - previewTitles.length);
@@ -33,6 +34,8 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
       case "downloading":
       case "resolving":
         return <span className={`${styles.stateBadge} ${styles.badgeDownloading}`}><Clock size={12} /> {strings.downloads.stateDownloading}</span>;
+      case "waiting":
+        return <span className={`${styles.stateBadge} ${styles.badgeQueued}`}><Clock size={12} /> {strings.downloads.stateWaiting}</span>;
       case "completed":
         return <span className={`${styles.stateBadge} ${styles.badgeCompleted}`}><CheckCircle2 size={12} /> {strings.downloads.stateCompleted}</span>;
       case "paused":
@@ -88,8 +91,8 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
             >
               <div className={styles.progressBarFill} style={{ width: `${progressPercent}%` }} />
             </div>
-            <span>{progressPercent}%</span>
-            <span>{strings.downloads.progressTracks(completedTracks, totalTracks)}</span>
+            <span className={styles.progressPercent}>{progressPercent}%</span>
+            <span className={styles.progressTracks}>{strings.downloads.progressTracks(completedTracks, totalTracks)}</span>
           </div>
 
           {error && (
@@ -101,7 +104,7 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
 
         {/* Job Action Controls */}
         <div className={styles.jobControls}>
-          {(state === "downloading" || state === "resolving" || state === "queued") && (
+          {isRunning && (
             <Tooltip content={strings.downloads.btnPause}>
               <button
                 type="button"
@@ -140,7 +143,7 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
             </Tooltip>
           )}
 
-          {(state === "downloading" || state === "resolving" || state === "queued" || state === "paused") && (
+          {(isRunning || state === "paused") && (
             <Tooltip content={strings.downloads.btnCancel}>
               <button
                 type="button"
@@ -153,16 +156,18 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
             </Tooltip>
           )}
 
-          <Tooltip content={strings.downloads.btnRemove}>
-            <button
-              type="button"
-              className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
-              onClick={() => removeJob(job.id)}
-              aria-label={strings.downloads.btnRemove}
-            >
-              <Trash2 size={16} />
-            </button>
-          </Tooltip>
+          {!isRunning && (
+            <Tooltip content={strings.downloads.btnRemove}>
+              <button
+                type="button"
+                className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
+                onClick={() => removeJob(job.id)}
+                aria-label={strings.downloads.btnRemove}
+              >
+                <Trash2 size={16} />
+              </button>
+            </Tooltip>
+          )}
         </div>
       </div>
     </div>

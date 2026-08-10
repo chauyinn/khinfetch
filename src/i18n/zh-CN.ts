@@ -76,6 +76,7 @@ export const strings = {
     currentDownloading: (title: string) => `正在下载: ${title}`,
     errorMessage: (msg: string) => `错误: ${msg}`,
     stateDownloading: "下载中",
+    stateWaiting: "等待相同文件",
     stateCompleted: "已完成",
     statePaused: "已暂停",
     stateInterrupted: "已中断",

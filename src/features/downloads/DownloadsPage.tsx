@@ -9,7 +9,7 @@ export const DownloadsPage: React.FC = () => {
   const strings = useStrings();
   const { jobs, activeDownloadsCount, pauseAllJobs, resumeAllJobs, refreshJobs } = useJobsStore();
 
-  const activeJobs = jobs.filter((j) => j.state === "downloading" || j.state === "resolving" || j.state === "queued");
+  const activeJobs = jobs.filter((j) => j.state === "downloading" || j.state === "resolving" || j.state === "waiting" || j.state === "queued");
   const pausedJobs = jobs.filter((j) => j.state === "paused" || j.state === "interrupted");
 
   return (

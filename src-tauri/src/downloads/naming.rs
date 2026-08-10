@@ -96,35 +96,59 @@ pub fn artwork_filename(index: usize, url: &Url) -> String {
     format!("{:03} - {stem}.{extension}", index + 1)
 }
 
-pub async fn unique_target_path(path: &Path) -> std::io::Result<PathBuf> {
-    if tokio::fs::try_exists(path).await? {
-        let parent = path.parent().unwrap_or_else(|| Path::new(""));
-        let stem = path
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .unwrap_or("download");
-        let extension = path.extension().and_then(|value| value.to_str());
-        for number in 2..=10_000 {
+pub async fn reserve_unique_target_path(path: &Path) -> std::io::Result<(PathBuf, PathBuf)> {
+    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("download");
+    let extension = path.extension().and_then(|value| value.to_str());
+
+    for number in 1..=10_000 {
+        let candidate = if number == 1 {
+            path.to_owned()
+        } else {
             let filename = match extension {
                 Some(extension) => format!("{stem} ({number}).{extension}"),
                 None => format!("{stem} ({number})"),
             };
-            let candidate = parent.join(filename);
-            if !tokio::fs::try_exists(&candidate).await? {
-                return Ok(candidate);
-            }
+            parent.join(filename)
+        };
+        if tokio::fs::try_exists(&candidate).await? {
+            continue;
         }
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            "unable to allocate a unique filename",
-        ));
+        let filename = candidate
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("download");
+        let part = candidate.with_file_name(format!("{filename}.part"));
+        match tokio::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&part)
+            .await
+        {
+            Ok(file) => {
+                drop(file);
+                if tokio::fs::try_exists(&candidate).await? {
+                    let _ = tokio::fs::remove_file(&part).await;
+                    continue;
+                }
+                return Ok((candidate, part));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
     }
-    Ok(path.to_owned())
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "unable to reserve a unique filename",
+    ))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::track_filename;
+    use super::{reserve_unique_target_path, track_filename};
 
     #[test]
     fn track_filename_includes_disc_and_track_numbers() {
@@ -140,5 +164,30 @@ mod tests {
             track_filename(None, Some(3), "Test Track", "FLAC"),
             "01-03 - Test Track.flac"
         );
+    }
+
+    #[tokio::test]
+    async fn target_reservations_are_unique() {
+        let directory = std::env::temp_dir().join(format!(
+            "khinfetch-target-reservation-{}",
+            uuid::Uuid::new_v4()
+        ));
+        tokio::fs::create_dir_all(&directory)
+            .await
+            .expect("create reservation directory");
+        let requested = directory.join("track.mp3");
+
+        let (first_target, first_part) = reserve_unique_target_path(&requested)
+            .await
+            .expect("reserve first target");
+        let (second_target, second_part) = reserve_unique_target_path(&requested)
+            .await
+            .expect("reserve second target");
+
+        assert_ne!(first_target, second_target);
+        assert_ne!(first_part, second_part);
+        tokio::fs::remove_dir_all(directory)
+            .await
+            .expect("remove reservation directory");
     }
 }

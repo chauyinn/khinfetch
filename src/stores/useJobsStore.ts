@@ -25,6 +25,31 @@ interface JobsState {
   resumeAllJobs: () => Promise<void>;
 }
 
+let jobsEventRevision = 0;
+
+const isActiveJob = (job: AlbumJob) =>
+  job.state === "downloading" || job.state === "resolving" || job.state === "waiting" || job.state === "queued";
+
+const activeDownloadsCount = (jobs: AlbumJob[]) => jobs.filter(isActiveJob).length;
+
+const mergeJobsBySequence = (snapshot: AlbumJob[], liveJobs: AlbumJob[]) => {
+  const snapshotIds = new Set(snapshot.map((job) => job.id));
+  const liveById = new Map(liveJobs.map((job) => [job.id, job]));
+  const liveOnly = liveJobs.filter((job) => !snapshotIds.has(job.id));
+  return [
+    ...liveOnly,
+    ...snapshot.map((job) => {
+      const live = liveById.get(job.id);
+      return live && live.sequence > job.sequence ? live : job;
+    }),
+  ];
+};
+
+const showActionError = (error: unknown) => {
+  const strings = getStrings(useAppStore.getState().languageSetting);
+  useToastStore.getState().showToast(errorMessage(error, strings.errors.unknown), "error");
+};
+
 export const useJobsStore = create<JobsState>((set, get) => ({
   jobs: [],
   isLoading: false,
@@ -36,6 +61,7 @@ export const useJobsStore = create<JobsState>((set, get) => ({
 
     // Register listeners first before listJobs() to prevent race conditions
     const unlistenJobUpdated = await backendClient.onJobUpdated((updatedJob) => {
+      jobsEventRevision += 1;
       set((state) => {
         const existingIndex = state.jobs.findIndex((j) => j.id === updatedJob.id);
         let updatedList: AlbumJob[];
@@ -52,11 +78,7 @@ export const useJobsStore = create<JobsState>((set, get) => ({
           updatedList = [updatedJob, ...state.jobs];
         }
 
-        const activeCount = updatedList.filter(
-          (j) => j.state === "downloading" || j.state === "resolving" || j.state === "queued"
-        ).length;
-
-        return { jobs: updatedList, activeDownloadsCount: activeCount };
+        return { jobs: updatedList, activeDownloadsCount: activeDownloadsCount(updatedList) };
       });
     });
 
@@ -66,12 +88,19 @@ export const useJobsStore = create<JobsState>((set, get) => ({
 
     // Load authoritative list from SQLite / backend
     try {
+      const snapshotRevision = jobsEventRevision;
       const initialJobs = await backendClient.listJobs();
-      const activeCount = initialJobs.filter(
-        (j) => j.state === "downloading" || j.state === "resolving" || j.state === "queued"
-      ).length;
-
-      set({ jobs: initialJobs, activeDownloadsCount: activeCount, isLoading: false, error: null });
+      set((state) => {
+        const jobs = jobsEventRevision === snapshotRevision
+          ? initialJobs
+          : mergeJobsBySequence(initialJobs, state.jobs);
+        return {
+          jobs,
+          activeDownloadsCount: activeDownloadsCount(jobs),
+          isLoading: false,
+          error: null,
+        };
+      });
     } catch (error) {
       const strings = getStrings(useAppStore.getState().languageSetting);
       set({ isLoading: false, error: errorMessage(error, strings.errors.jobsLoadFallback) });
@@ -85,11 +114,14 @@ export const useJobsStore = create<JobsState>((set, get) => ({
 
   refreshJobs: async () => {
     try {
+      const snapshotRevision = jobsEventRevision;
       const jobs = await backendClient.listJobs();
-      const activeCount = jobs.filter(
-        (j) => j.state === "downloading" || j.state === "resolving" || j.state === "queued"
-      ).length;
-      set({ jobs, activeDownloadsCount: activeCount });
+      set((state) => {
+        const merged = jobsEventRevision === snapshotRevision
+          ? jobs
+          : mergeJobsBySequence(jobs, state.jobs);
+        return { jobs: merged, activeDownloadsCount: activeDownloadsCount(merged), error: null };
+      });
     } catch (error) {
       const strings = getStrings(useAppStore.getState().languageSetting);
       set({ error: errorMessage(error, strings.errors.jobsRefreshFallback) });
@@ -97,34 +129,55 @@ export const useJobsStore = create<JobsState>((set, get) => ({
   },
 
   pauseJob: async (jobId: string) => {
-    await backendClient.pauseJob(jobId);
-    await get().refreshJobs();
+    try {
+      await backendClient.pauseJob(jobId);
+      await get().refreshJobs();
+    } catch (error) {
+      showActionError(error);
+    }
   },
 
   resumeJob: async (jobId: string) => {
-    await backendClient.resumeJob(jobId);
-    await get().refreshJobs();
+    try {
+      await backendClient.resumeJob(jobId);
+      await get().refreshJobs();
+    } catch (error) {
+      showActionError(error);
+    }
   },
 
   cancelJob: async (jobId: string) => {
-    await backendClient.cancelJob(jobId);
-    await get().refreshJobs();
+    try {
+      await backendClient.cancelJob(jobId);
+      await get().refreshJobs();
+    } catch (error) {
+      showActionError(error);
+    }
   },
 
   retryJob: async (jobId: string) => {
-    await backendClient.retryJob(jobId);
-    await get().refreshJobs();
+    try {
+      await backendClient.retryJob(jobId);
+      await get().refreshJobs();
+    } catch (error) {
+      showActionError(error);
+    }
   },
 
   removeJob: async (jobId: string) => {
-    await backendClient.removeJob(jobId);
-    await get().refreshJobs();
+    try {
+      await backendClient.removeJob(jobId);
+      set((state) => {
+        const jobs = state.jobs.filter((job) => job.id !== jobId);
+        return { jobs, activeDownloadsCount: activeDownloadsCount(jobs) };
+      });
+    } catch (error) {
+      showActionError(error);
+    }
   },
 
   pauseAllJobs: async () => {
-    const activeJobs = get().jobs.filter(
-      (j) => j.state === "downloading" || j.state === "resolving" || j.state === "queued"
-    );
+    const activeJobs = get().jobs.filter(isActiveJob);
     const results = await Promise.allSettled(activeJobs.map((j) => backendClient.pauseJob(j.id)));
     const rejected = results.filter((r) => r.status === "rejected");
     if (rejected.length > 0) {

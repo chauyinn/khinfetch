@@ -1,2 +1,2 @@
 
-export type JobState = "queued" | "resolving" | "downloading" | "paused" | "interrupted" | "completed" | "failed" | "canceled";
+export type JobState = "queued" | "resolving" | "waiting" | "downloading" | "paused" | "interrupted" | "completed" | "failed" | "canceled";

@@ -22,7 +22,7 @@ use crate::{
 
 use super::{
     downloader::{DownloadClient, DownloadProgress, ProgressCallback},
-    naming::{artwork_filename, track_filename, unique_target_path},
+    naming::{artwork_filename, reserve_unique_target_path, track_filename},
     state::can_transition,
     variant::select_variant,
 };
@@ -42,13 +42,66 @@ struct DownloadManagerInner {
     khinsider: KhinsiderClient,
     downloader: DownloadClient,
     limiter: ConcurrencyLimiter,
+    resources: ResourceCoordinator,
     active: Mutex<HashMap<String, ActiveControl>>,
+    mutation_lock: Mutex<()>,
 }
 
 #[derive(Clone)]
 struct ActiveControl {
     cancellation: CancellationToken,
     stop_reason: Arc<AtomicU8>,
+    completion: watch::Receiver<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ResourceKey {
+    resource_url: String,
+    requested_target: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PreparedResource {
+    target: PathBuf,
+    part: PathBuf,
+    owner_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CompletedResource {
+    target: PathBuf,
+    size: u64,
+}
+
+#[derive(Default)]
+struct ResourceGateState {
+    prepared: Option<PreparedResource>,
+    completed: Option<CompletedResource>,
+}
+
+#[derive(Default)]
+struct ResourceGate {
+    execution: Mutex<()>,
+    state: Mutex<ResourceGateState>,
+}
+
+#[derive(Default)]
+struct ResourceCoordinator {
+    gates: Mutex<HashMap<ResourceKey, Arc<ResourceGate>>>,
+}
+
+impl ResourceCoordinator {
+    async fn gate_for(&self, key: ResourceKey) -> Arc<ResourceGate> {
+        let mut gates = self.gates.lock().await;
+        gates
+            .entry(key)
+            .or_insert_with(|| Arc::new(ResourceGate::default()))
+            .clone()
+    }
+
+    async fn existing_gate(&self, key: &ResourceKey) -> Option<Arc<ResourceGate>> {
+        self.gates.lock().await.get(key).cloned()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,7 +129,9 @@ impl DownloadManager {
                 khinsider,
                 downloader: DownloadClient::new(env!("CARGO_PKG_VERSION"))?,
                 limiter: ConcurrencyLimiter::new(concurrency)?,
+                resources: ResourceCoordinator::default(),
                 active: Mutex::new(HashMap::new()),
+                mutation_lock: Mutex::new(()),
             }),
         })
     }
@@ -92,9 +147,11 @@ impl DownloadManager {
             return Err(invalid_state("只有排队中的任务可以启动"));
         }
 
+        let (completion_tx, completion) = watch::channel(false);
         let control = ActiveControl {
             cancellation: CancellationToken::new(),
             stop_reason: Arc::new(AtomicU8::new(StopReason::None as u8)),
+            completion,
         };
         {
             let mut active = self.inner.active.lock().await;
@@ -125,6 +182,7 @@ impl DownloadManager {
                 }
             }
             manager.inner.active.lock().await.remove(&job_id);
+            let _ = completion_tx.send(true);
         });
         Ok(())
     }
@@ -138,6 +196,7 @@ impl DownloadManager {
     }
 
     pub async fn resume(&self, app: AppHandle, job_id: &str) -> AppResult<AlbumJob> {
+        let _mutation_guard = self.inner.mutation_lock.lock().await;
         let job = self
             .inner
             .storage
@@ -177,8 +236,17 @@ impl DownloadManager {
     }
 
     pub async fn remove(&self, job_id: &str) -> AppResult<()> {
+        let _mutation_guard = self.inner.mutation_lock.lock().await;
         if self.inner.active.lock().await.contains_key(job_id) {
             return Err(invalid_state("请先暂停或取消正在运行的任务"));
+        }
+        let tracks = self.inner.storage.list_track_jobs(job_id).await?;
+        let artworks = self.inner.storage.list_artwork_jobs(job_id).await?;
+        for track in tracks {
+            self.remove_track_part(&track).await?;
+        }
+        for (index, artwork) in artworks.into_iter().enumerate() {
+            self.remove_artwork_part(index, &artwork).await?;
         }
         self.inner.storage.remove_job(job_id).await
     }
@@ -203,12 +271,51 @@ impl DownloadManager {
             return Err(invalid_state("当前任务状态不支持此操作"));
         }
 
-        if let Some(control) = self.inner.active.lock().await.get(job_id).cloned() {
-            control.stop_reason.store(reason as u8, Ordering::SeqCst);
+        let control = { self.inner.active.lock().await.get(job_id).cloned() };
+        if let Some(control) = control {
+            match reason {
+                StopReason::Cancel => control
+                    .stop_reason
+                    .store(StopReason::Cancel as u8, Ordering::SeqCst),
+                StopReason::Pause => {
+                    let _ = control.stop_reason.compare_exchange(
+                        StopReason::None as u8,
+                        StopReason::Pause as u8,
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                    );
+                }
+                StopReason::None => return Err(AppError::internal("无效停止原因")),
+            }
             control.cancellation.cancel();
-            return Ok(job);
+            let mut completion = control.completion.clone();
+            if !*completion.borrow() {
+                completion
+                    .changed()
+                    .await
+                    .map_err(|_| AppError::internal("下载任务停止前后台执行器意外退出"))?;
+            }
+            let stopped = self
+                .inner
+                .storage
+                .get_job(job_id)
+                .await?
+                .ok_or_else(|| storage_error("下载任务不存在"))?;
+            if stopped.state != target_state {
+                return Err(invalid_state("下载任务未能完成请求的状态变更"));
+            }
+            return Ok(stopped);
         }
 
+        let current = self
+            .inner
+            .storage
+            .get_job(job_id)
+            .await?
+            .ok_or_else(|| storage_error("下载任务不存在"))?;
+        if !can_transition(current.state, target_state) {
+            return Err(invalid_state("当前任务状态不支持此操作"));
+        }
         self.persist_stop(app, job_id, reason, target_state).await
     }
 
@@ -328,19 +435,21 @@ impl DownloadManager {
             track.state = target_state;
             track.error = None;
             if reason == StopReason::Cancel {
-                remove_part_path(track.part_path.as_deref()).await?;
+                self.remove_track_part(track).await?;
+                track.part_path = None;
             }
             self.inner.storage.save_track_job(track).await?;
         }
         let mut artworks = self.inner.storage.list_artwork_jobs(job_id).await?;
-        for artwork in &mut artworks {
+        for (index, artwork) in artworks.iter_mut().enumerate() {
             if artwork.state == JobState::Completed {
                 continue;
             }
             artwork.state = target_state;
             artwork.error = None;
             if reason == StopReason::Cancel {
-                remove_part_path(artwork.part_path.as_deref()).await?;
+                self.remove_artwork_part(index, artwork).await?;
+                artwork.part_path = None;
             }
             self.inner.storage.save_artwork_job(artwork).await?;
         }
@@ -361,34 +470,33 @@ impl DownloadManager {
         skip_verified_files: bool,
         cancellation: &CancellationToken,
     ) -> AppResult<()> {
-        let _permit = self.inner.limiter.acquire(cancellation).await?;
+        let resolution_permit = self.inner.limiter.acquire(cancellation).await?;
         track.state = JobState::Resolving;
         track.error = None;
         self.inner.storage.save_track_job(&track).await?;
         let job = self
             .inner
             .storage
-            .set_job_state(
-                &track.job_id,
-                JobState::Downloading,
-                None,
-                Some(&track.track.title),
-            )
+            .refresh_job_runtime_state(&track.job_id, Some(&track.track.title))
             .await?;
         emit_job(app, &job);
 
-        let variants = match self
-            .inner
-            .khinsider
-            .resolve_track_variants(&track.track.track_page_url)
-            .await
-        {
+        let variants = match tokio::select! {
+            _ = cancellation.cancelled() => Err(canceled_error()),
+            result = self.inner.khinsider.resolve_track_variants(&track.track.track_page_url) => result,
+        } {
             Ok(variants) => variants,
             Err(error) => {
                 track.state = JobState::Failed;
                 track.error = Some(error.clone());
                 track.retry_count = track.retry_count.saturating_add(1);
                 self.inner.storage.save_track_job(&track).await?;
+                let job = self
+                    .inner
+                    .storage
+                    .refresh_job_runtime_state(&track.job_id, None)
+                    .await?;
+                emit_job(app, &job);
                 return Err(error);
             }
         };
@@ -398,38 +506,87 @@ impl DownloadManager {
                 track.state = JobState::Failed;
                 track.error = Some(error.clone());
                 self.inner.storage.save_track_job(&track).await?;
+                let job = self
+                    .inner
+                    .storage
+                    .refresh_job_runtime_state(&track.job_id, None)
+                    .await?;
+                emit_job(app, &job);
                 return Err(error);
             }
         };
         track.resolved_media_url = Some(variant.media_url.to_string());
-        let (target, part, already_complete) = prepare_paths(
-            &track,
-            &variant.media_url,
-            skip_verified_files,
-            &self.inner.downloader,
-        )
-        .await?;
+        let requested = requested_track_path(&track, &variant.media_url)?;
+        let resource_key = ResourceKey {
+            resource_url: variant.media_url.to_string(),
+            requested_target: requested.clone(),
+        };
+        drop(resolution_permit);
+
+        let gate = self.inner.resources.gate_for(resource_key).await;
+        let _resource_guard = match gate.execution.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                track.state = JobState::Waiting;
+                self.inner.storage.save_track_job(&track).await?;
+                let job = self
+                    .inner
+                    .storage
+                    .refresh_job_runtime_state(&track.job_id, Some(&track.track.title))
+                    .await?;
+                emit_job(app, &job);
+                tokio::select! {
+                    _ = cancellation.cancelled() => return Err(canceled_error()),
+                    guard = gate.execution.lock() => guard,
+                }
+            }
+        };
+
+        if let Some(completed) = reusable_completed_resource(&gate).await? {
+            return self
+                .complete_track(app, &mut track, &completed.target, completed.size)
+                .await;
+        }
+
+        let _download_permit = self.inner.limiter.acquire(cancellation).await?;
+        let prepared = gate.state.lock().await.prepared.clone();
+        let (target, part, already_complete) = if let Some(prepared) = prepared {
+            (prepared.target, prepared.part, false)
+        } else {
+            prepare_paths(
+                &track,
+                &requested,
+                &variant.media_url,
+                skip_verified_files,
+                &self.inner.downloader,
+                cancellation,
+            )
+            .await?
+        };
         track.target_path = Some(target.to_string_lossy().into_owned());
-        track.part_path = Some(part.to_string_lossy().into_owned());
+        track.part_path = (!already_complete).then(|| part.to_string_lossy().into_owned());
         if already_complete {
-            track.bytes_received = tokio::fs::metadata(&target)
+            let size = tokio::fs::metadata(&target)
                 .await
                 .map_err(file_error)?
                 .len();
-            track.bytes_total = Some(track.bytes_received);
-            track.state = JobState::Completed;
-            self.inner.storage.save_track_job(&track).await?;
-            let job = self
-                .inner
-                .storage
-                .refresh_job_progress(&track.job_id, None)
-                .await?;
-            emit_job(app, &job);
-            return Ok(());
+            set_completed_resource(&gate, target.clone(), size).await;
+            return self.complete_track(app, &mut track, &target, size).await;
         }
+        gate.state.lock().await.prepared = Some(PreparedResource {
+            target: target.clone(),
+            part: part.clone(),
+            owner_id: track.id.clone(),
+        });
         track.state = JobState::Downloading;
         track.updated_at = timestamp();
         self.inner.storage.save_track_job(&track).await?;
+        let job = self
+            .inner
+            .storage
+            .refresh_job_runtime_state(&track.job_id, Some(&track.track.title))
+            .await?;
+        emit_job(app, &job);
 
         let (progress_tx, mut progress_rx) = mpsc::unbounded_channel::<DownloadProgress>();
         let callback: ProgressCallback = Arc::new(move |progress| {
@@ -499,11 +656,16 @@ impl DownloadManager {
                 track.bytes_total = outcome.bytes_total;
                 track.state = JobState::Completed;
                 track.error = None;
+                set_completed_resource(&gate, target.clone(), outcome.bytes_received).await;
                 self.inner.storage.save_track_job(&track).await?;
+                self.inner
+                    .storage
+                    .refresh_job_progress(&track.job_id, None)
+                    .await?;
                 let job = self
                     .inner
                     .storage
-                    .refresh_job_progress(&track.job_id, None)
+                    .refresh_job_runtime_state(&track.job_id, None)
                     .await?;
                 emit_job(app, &job);
                 Ok(())
@@ -514,9 +676,42 @@ impl DownloadManager {
                 track.error = Some(error.clone());
                 track.retry_count = track.retry_count.saturating_add(1);
                 self.inner.storage.save_track_job(&track).await?;
+                let job = self
+                    .inner
+                    .storage
+                    .refresh_job_runtime_state(&track.job_id, None)
+                    .await?;
+                emit_job(app, &job);
                 Err(error)
             }
         }
+    }
+
+    async fn complete_track(
+        &self,
+        app: &AppHandle,
+        track: &mut TrackJobRecord,
+        target: &Path,
+        size: u64,
+    ) -> AppResult<()> {
+        track.target_path = Some(target.to_string_lossy().into_owned());
+        track.part_path = None;
+        track.bytes_received = size;
+        track.bytes_total = Some(size);
+        track.state = JobState::Completed;
+        track.error = None;
+        self.inner.storage.save_track_job(track).await?;
+        self.inner
+            .storage
+            .refresh_job_progress(&track.job_id, None)
+            .await?;
+        let job = self
+            .inner
+            .storage
+            .refresh_job_runtime_state(&track.job_id, None)
+            .await?;
+        emit_job(app, &job);
+        Ok(())
     }
 
     async fn process_artwork(
@@ -527,27 +722,87 @@ impl DownloadManager {
         skip_verified_files: bool,
         cancellation: &CancellationToken,
     ) -> AppResult<()> {
-        let _permit = self.inner.limiter.acquire(cancellation).await?;
         let artwork_url =
             Url::parse(&artwork.source_url).map_err(|_| AppError::invalid_url("原图链接无效"))?;
         artwork.state = JobState::Resolving;
         artwork.error = None;
         self.inner.storage.save_artwork_job(&artwork).await?;
-        let (target, part) = prepare_artwork_paths(&artwork, index, &artwork_url).await?;
+        let job = self
+            .inner
+            .storage
+            .refresh_job_runtime_state(&artwork.job_id, Some("专辑原图"))
+            .await?;
+        emit_job(app, &job);
+
+        let requested = requested_artwork_path(&artwork, index, &artwork_url);
+        let resource_key = ResourceKey {
+            resource_url: artwork_url.to_string(),
+            requested_target: requested.clone(),
+        };
+        let gate = self.inner.resources.gate_for(resource_key).await;
+        let _resource_guard = match gate.execution.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                artwork.state = JobState::Waiting;
+                self.inner.storage.save_artwork_job(&artwork).await?;
+                let job = self
+                    .inner
+                    .storage
+                    .refresh_job_runtime_state(&artwork.job_id, Some("专辑原图"))
+                    .await?;
+                emit_job(app, &job);
+                tokio::select! {
+                    _ = cancellation.cancelled() => return Err(canceled_error()),
+                    guard = gate.execution.lock() => guard,
+                }
+            }
+        };
+
+        if let Some(completed) = reusable_completed_resource(&gate).await? {
+            return self
+                .complete_artwork(app, &mut artwork, &completed.target, completed.size)
+                .await;
+        }
+
+        let _download_permit = self.inner.limiter.acquire(cancellation).await?;
+        let prepared = gate.state.lock().await.prepared.clone();
+        let (target, part, already_complete) = if let Some(prepared) = prepared {
+            (prepared.target, prepared.part, false)
+        } else {
+            prepare_artwork_paths(
+                &artwork,
+                &requested,
+                &artwork_url,
+                skip_verified_files,
+                &self.inner.downloader,
+                cancellation,
+            )
+            .await?
+        };
         artwork.target_path = Some(target.to_string_lossy().into_owned());
-        artwork.part_path = Some(part.to_string_lossy().into_owned());
+        artwork.part_path = (!already_complete).then(|| part.to_string_lossy().into_owned());
+        if already_complete {
+            let size = tokio::fs::metadata(&target)
+                .await
+                .map_err(file_error)?
+                .len();
+            set_completed_resource(&gate, target.clone(), size).await;
+            return self
+                .complete_artwork(app, &mut artwork, &target, size)
+                .await;
+        }
+        gate.state.lock().await.prepared = Some(PreparedResource {
+            target: target.clone(),
+            part: part.clone(),
+            owner_id: artwork.id.clone(),
+        });
         artwork.state = JobState::Downloading;
         artwork.updated_at = timestamp();
         self.inner.storage.save_artwork_job(&artwork).await?;
         let job = self
             .inner
             .storage
-            .set_job_state(
-                &artwork.job_id,
-                JobState::Downloading,
-                None,
-                Some("专辑原图"),
-            )
+            .refresh_job_runtime_state(&artwork.job_id, Some("专辑原图"))
             .await?;
         emit_job(app, &job);
 
@@ -560,7 +815,7 @@ impl DownloadManager {
             &target,
             &part,
             cancellation,
-            skip_verified_files,
+            false,
             callback,
         );
         tokio::pin!(download);
@@ -591,7 +846,15 @@ impl DownloadManager {
                 artwork.bytes_total = outcome.bytes_total;
                 artwork.state = JobState::Completed;
                 artwork.error = None;
-                self.inner.storage.save_artwork_job(&artwork).await
+                set_completed_resource(&gate, target.clone(), outcome.bytes_received).await;
+                self.inner.storage.save_artwork_job(&artwork).await?;
+                let job = self
+                    .inner
+                    .storage
+                    .refresh_job_runtime_state(&artwork.job_id, None)
+                    .await?;
+                emit_job(app, &job);
+                Ok(())
             }
             Err(error) if error.code == ErrorCode::Canceled => Err(error),
             Err(error) => {
@@ -599,21 +862,87 @@ impl DownloadManager {
                 artwork.error = Some(error.clone());
                 artwork.retry_count = artwork.retry_count.saturating_add(1);
                 self.inner.storage.save_artwork_job(&artwork).await?;
+                let job = self
+                    .inner
+                    .storage
+                    .refresh_job_runtime_state(&artwork.job_id, None)
+                    .await?;
+                emit_job(app, &job);
                 Err(error)
             }
         }
     }
+
+    async fn complete_artwork(
+        &self,
+        app: &AppHandle,
+        artwork: &mut ArtworkJobRecord,
+        target: &Path,
+        size: u64,
+    ) -> AppResult<()> {
+        artwork.target_path = Some(target.to_string_lossy().into_owned());
+        artwork.part_path = None;
+        artwork.bytes_received = size;
+        artwork.bytes_total = Some(size);
+        artwork.state = JobState::Completed;
+        artwork.error = None;
+        self.inner.storage.save_artwork_job(artwork).await?;
+        let job = self
+            .inner
+            .storage
+            .refresh_job_runtime_state(&artwork.job_id, None)
+            .await?;
+        emit_job(app, &job);
+        Ok(())
+    }
+
+    async fn remove_track_part(&self, track: &TrackJobRecord) -> AppResult<()> {
+        self.remove_owned_resource_part(
+            track_resource_key(track),
+            &track.id,
+            track.part_path.as_deref(),
+        )
+        .await
+    }
+
+    async fn remove_artwork_part(&self, index: usize, artwork: &ArtworkJobRecord) -> AppResult<()> {
+        self.remove_owned_resource_part(
+            artwork_resource_key(artwork, index),
+            &artwork.id,
+            artwork.part_path.as_deref(),
+        )
+        .await
+    }
+
+    async fn remove_owned_resource_part(
+        &self,
+        key: Option<ResourceKey>,
+        owner_id: &str,
+        part_path: Option<&str>,
+    ) -> AppResult<()> {
+        let Some(part_path) = part_path else {
+            return Ok(());
+        };
+        let Some(key) = key else {
+            return remove_part_path(Some(part_path)).await;
+        };
+        let Some(gate) = self.inner.resources.existing_gate(&key).await else {
+            return remove_part_path(Some(part_path)).await;
+        };
+
+        let mut state = gate.state.lock().await;
+        let owns_part = state.prepared.as_ref().is_some_and(|prepared| {
+            prepared.owner_id == owner_id && prepared.part == Path::new(part_path)
+        });
+        if owns_part {
+            remove_part_path(Some(part_path)).await?;
+            state.prepared = None;
+        }
+        Ok(())
+    }
 }
 
-async fn prepare_paths(
-    track: &TrackJobRecord,
-    media_url: &Url,
-    skip_verified_files: bool,
-    downloader: &DownloadClient,
-) -> AppResult<(PathBuf, PathBuf, bool)> {
-    if let (Some(target), Some(part)) = (&track.target_path, &track.part_path) {
-        return Ok((PathBuf::from(target), PathBuf::from(part), false));
-    }
+fn requested_track_path(track: &TrackJobRecord, media_url: &Url) -> AppResult<PathBuf> {
     let extension = Path::new(media_url.path())
         .extension()
         .and_then(|value| value.to_str())
@@ -624,23 +953,83 @@ async fn prepare_paths(
                 false,
             )
         })?;
-    let directory = PathBuf::from(&track.output_directory);
-    tokio::fs::create_dir_all(&directory)
-        .await
-        .map_err(file_error)?;
-    let requested = directory.join(track_filename(
+    Ok(PathBuf::from(&track.output_directory).join(track_filename(
         track.track.disc_number,
         track.track.index,
         &track.track.title,
         extension,
-    ));
-    if skip_verified_files
-        && tokio::fs::try_exists(&requested)
+    )))
+}
+
+fn requested_artwork_path(artwork: &ArtworkJobRecord, index: usize, artwork_url: &Url) -> PathBuf {
+    PathBuf::from(&artwork.output_directory).join(artwork_filename(index, artwork_url))
+}
+
+fn track_resource_key(track: &TrackJobRecord) -> Option<ResourceKey> {
+    let resource_url = track.resolved_media_url.as_deref()?;
+    let media_url = Url::parse(resource_url).ok()?;
+    Some(ResourceKey {
+        resource_url: media_url.to_string(),
+        requested_target: requested_track_path(track, &media_url).ok()?,
+    })
+}
+
+fn artwork_resource_key(artwork: &ArtworkJobRecord, index: usize) -> Option<ResourceKey> {
+    let artwork_url = Url::parse(&artwork.source_url).ok()?;
+    Some(ResourceKey {
+        resource_url: artwork_url.to_string(),
+        requested_target: requested_artwork_path(artwork, index, &artwork_url),
+    })
+}
+
+async fn reusable_completed_resource(gate: &ResourceGate) -> AppResult<Option<CompletedResource>> {
+    let completed = gate.state.lock().await.completed.clone();
+    let Some(completed) = completed else {
+        return Ok(None);
+    };
+    match tokio::fs::metadata(&completed.target).await {
+        Ok(metadata) if metadata.len() == completed.size => Ok(Some(completed)),
+        Ok(_) => {
+            gate.state.lock().await.completed = None;
+            Ok(None)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            gate.state.lock().await.completed = None;
+            Ok(None)
+        }
+        Err(error) => Err(file_error(error)),
+    }
+}
+
+async fn set_completed_resource(gate: &ResourceGate, target: PathBuf, size: u64) {
+    let mut state = gate.state.lock().await;
+    state.prepared = None;
+    state.completed = Some(CompletedResource { target, size });
+}
+
+async fn prepare_paths(
+    track: &TrackJobRecord,
+    requested: &Path,
+    media_url: &Url,
+    skip_verified_files: bool,
+    downloader: &DownloadClient,
+    cancellation: &CancellationToken,
+) -> AppResult<(PathBuf, PathBuf, bool)> {
+    if let (Some(target), Some(part)) = (&track.target_path, &track.part_path) {
+        return Ok((PathBuf::from(target), PathBuf::from(part), false));
+    }
+    if let Some(directory) = requested.parent() {
+        tokio::fs::create_dir_all(directory)
             .await
-            .map_err(file_error)?
-    {
-        if let Some(remote_size) = downloader.remote_size(media_url).await? {
-            let local_size = tokio::fs::metadata(&requested)
+            .map_err(file_error)?;
+    }
+    if skip_verified_files && tokio::fs::try_exists(requested).await.map_err(file_error)? {
+        let remote_size = tokio::select! {
+            _ = cancellation.cancelled() => return Err(canceled_error()),
+            result = downloader.remote_size(media_url) => result?,
+        };
+        if let Some(remote_size) = remote_size {
+            let local_size = tokio::fs::metadata(requested)
                 .await
                 .map_err(file_error)?
                 .len();
@@ -650,41 +1039,59 @@ async fn prepare_paths(
                     .and_then(|value| value.to_str())
                     .ok_or_else(|| AppError::internal("无法生成临时文件名"))?;
                 return Ok((
-                    requested.clone(),
+                    requested.to_owned(),
                     requested.with_file_name(format!("{filename}.part")),
                     true,
                 ));
             }
         }
     }
-    let target = unique_target_path(&requested).await.map_err(file_error)?;
-    let filename = target
-        .file_name()
-        .and_then(|value| value.to_str())
-        .ok_or_else(|| AppError::internal("无法生成临时文件名"))?;
-    let part = target.with_file_name(format!("{filename}.part"));
+    let (target, part) = reserve_unique_target_path(requested)
+        .await
+        .map_err(file_error)?;
     Ok((target, part, false))
 }
 
 async fn prepare_artwork_paths(
     artwork: &ArtworkJobRecord,
-    index: usize,
+    requested: &Path,
     artwork_url: &Url,
-) -> AppResult<(PathBuf, PathBuf)> {
+    skip_verified_files: bool,
+    downloader: &DownloadClient,
+    cancellation: &CancellationToken,
+) -> AppResult<(PathBuf, PathBuf, bool)> {
     if let (Some(target), Some(part)) = (&artwork.target_path, &artwork.part_path) {
-        return Ok((PathBuf::from(target), PathBuf::from(part)));
+        return Ok((PathBuf::from(target), PathBuf::from(part), false));
     }
-    let directory = PathBuf::from(&artwork.output_directory);
-    tokio::fs::create_dir_all(&directory)
+    if let Some(directory) = requested.parent() {
+        tokio::fs::create_dir_all(directory)
+            .await
+            .map_err(file_error)?;
+    }
+    if skip_verified_files && tokio::fs::try_exists(requested).await.map_err(file_error)? {
+        let remote_size = tokio::select! {
+            _ = cancellation.cancelled() => return Err(canceled_error()),
+            result = downloader.remote_artwork_size(artwork_url) => result?,
+        };
+        if let Some(remote_size) = remote_size {
+            let local_size = tokio::fs::metadata(requested)
+                .await
+                .map_err(file_error)?
+                .len();
+            if local_size == remote_size {
+                let filename = requested
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .ok_or_else(|| AppError::internal("无法生成原图临时文件名"))?;
+                let part = requested.with_file_name(format!("{filename}.part"));
+                return Ok((requested.to_owned(), part, true));
+            }
+        }
+    }
+    let (target, part) = reserve_unique_target_path(requested)
         .await
         .map_err(file_error)?;
-    let requested = directory.join(artwork_filename(index, artwork_url));
-    let filename = requested
-        .file_name()
-        .and_then(|value| value.to_str())
-        .ok_or_else(|| AppError::internal("无法生成原图临时文件名"))?;
-    let part = requested.with_file_name(format!("{filename}.{}.part", artwork.id));
-    Ok((requested, part))
+    Ok((target, part, false))
 }
 
 async fn remove_part_path(path: Option<&str>) -> AppResult<()> {
@@ -726,6 +1133,10 @@ fn emit_progress(app: &AppHandle, progress: TrackProgressEvent) {
 
 fn invalid_state(message: impl Into<String>) -> AppError {
     AppError::new(ErrorCode::Internal, message, false)
+}
+
+fn canceled_error() -> AppError {
+    AppError::new(ErrorCode::Canceled, "下载已取消", false)
 }
 
 fn storage_error(message: impl Into<String>) -> AppError {
@@ -823,6 +1234,13 @@ async fn adjust_permits(
 mod tests {
     use super::*;
 
+    fn resource_key(url: &str, target: &Path) -> ResourceKey {
+        ResourceKey {
+            resource_url: url.to_owned(),
+            requested_target: target.to_owned(),
+        }
+    }
+
     fn artwork_record(id: &str, output_directory: &Path) -> ArtworkJobRecord {
         ArtworkJobRecord {
             id: id.to_owned(),
@@ -842,7 +1260,88 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn artwork_jobs_share_the_target_but_not_the_part_file() {
+    async fn identical_resources_share_one_gate() {
+        let coordinator = ResourceCoordinator::default();
+        let key = resource_key(
+            "https://media.khinsider.com/track.flac",
+            Path::new("track.flac"),
+        );
+
+        let first = coordinator.gate_for(key.clone()).await;
+        let second = coordinator.gate_for(key).await;
+
+        assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[tokio::test]
+    async fn resource_gate_waits_until_the_owner_finishes() {
+        let gate = Arc::new(ResourceGate::default());
+        let owner = gate.execution.lock().await;
+        let waiting_gate = gate.clone();
+        let mut waiter = tokio::spawn(async move {
+            let _guard = waiting_gate.execution.lock().await;
+        });
+
+        assert!(tokio::time::timeout(Duration::from_millis(20), &mut waiter)
+            .await
+            .is_err());
+        drop(owner);
+        tokio::time::timeout(Duration::from_secs(1), waiter)
+            .await
+            .expect("waiter acquires released resource")
+            .expect("waiter task succeeds");
+    }
+
+    #[tokio::test]
+    async fn completed_resource_is_reused_at_its_original_target() {
+        let directory = std::env::temp_dir().join(format!(
+            "khinfetch-resource-reuse-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        tokio::fs::create_dir_all(&directory)
+            .await
+            .expect("create reuse directory");
+        let target = directory.join("track.flac");
+        tokio::fs::write(&target, b"complete")
+            .await
+            .expect("write completed resource");
+        let gate = ResourceGate::default();
+        set_completed_resource(&gate, target.clone(), 8).await;
+
+        let completed = reusable_completed_resource(&gate)
+            .await
+            .expect("validate completed resource")
+            .expect("completed resource is reusable");
+
+        assert_eq!(completed.target, target);
+        assert_eq!(completed.size, 8);
+        tokio::fs::remove_dir_all(directory)
+            .await
+            .expect("remove reuse directory");
+    }
+
+    #[tokio::test]
+    async fn different_urls_with_the_same_filename_use_different_gates() {
+        let coordinator = ResourceCoordinator::default();
+        let target = Path::new("track.mp3");
+        let first = coordinator
+            .gate_for(resource_key(
+                "https://media.khinsider.com/first.mp3",
+                target,
+            ))
+            .await;
+        let second = coordinator
+            .gate_for(resource_key(
+                "https://media.khinsider.com/second.mp3",
+                target,
+            ))
+            .await;
+
+        assert!(!Arc::ptr_eq(&first, &second));
+    }
+
+    #[tokio::test]
+    async fn artwork_jobs_reserve_distinct_targets() {
         let directory = std::env::temp_dir().join(format!(
             "khinfetch-artwork-path-test-{}-{}",
             std::process::id(),
@@ -853,18 +1352,38 @@ mod tests {
         ));
         let artwork_url = Url::parse("https://images.khinsider.com/example/cover.jpg")
             .expect("valid artwork URL");
+        let downloader = DownloadClient::new("test").expect("create download client");
+        let cancellation = CancellationToken::new();
+        let first_record = artwork_record("first-job", &directory);
+        let first_requested = requested_artwork_path(&first_record, 0, &artwork_url);
 
-        let (first_target, first_part) =
-            prepare_artwork_paths(&artwork_record("first-job", &directory), 0, &artwork_url)
-                .await
-                .expect("prepare first artwork path");
-        let (second_target, second_part) =
-            prepare_artwork_paths(&artwork_record("second-job", &directory), 0, &artwork_url)
-                .await
-                .expect("prepare second artwork path");
+        let (first_target, first_part, first_complete) = prepare_artwork_paths(
+            &first_record,
+            &first_requested,
+            &artwork_url,
+            false,
+            &downloader,
+            &cancellation,
+        )
+        .await
+        .expect("prepare first artwork path");
+        let second_record = artwork_record("second-job", &directory);
+        let second_requested = requested_artwork_path(&second_record, 0, &artwork_url);
+        let (second_target, second_part, second_complete) = prepare_artwork_paths(
+            &second_record,
+            &second_requested,
+            &artwork_url,
+            false,
+            &downloader,
+            &cancellation,
+        )
+        .await
+        .expect("prepare second artwork path");
 
-        assert_eq!(first_target, second_target);
+        assert_ne!(first_target, second_target);
         assert_ne!(first_part, second_part);
+        assert!(!first_complete);
+        assert!(!second_complete);
 
         tokio::fs::remove_dir_all(directory)
             .await

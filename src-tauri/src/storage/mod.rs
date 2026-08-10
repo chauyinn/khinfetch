@@ -10,7 +10,7 @@ use sqlx::{
 
 use crate::domain::{
     AlbumJob, AlbumSummary, AppError, AppResult, AppSettings, AppSettingsPatch, ErrorCode,
-    JobState, QualityPreference, TrackSummary,
+    JobState, TrackSummary,
 };
 
 const MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
@@ -80,33 +80,43 @@ impl Storage {
             .await
             .map_err(|error| storage_error(format!("数据库迁移失败: {error}")))?;
 
+        let recovery_timestamp = timestamp();
+        let mut recovery = pool
+            .begin()
+            .await
+            .map_err(|error| storage_error(format!("启动恢复事务失败: {error}")))?;
         sqlx::query(
             "UPDATE album_jobs
-             SET state = 'interrupted', updated_at = ?
-             WHERE state IN ('resolving', 'downloading')",
+             SET state = 'interrupted', current_track_title = NULL,
+                 sequence = sequence + 1, updated_at = ?
+             WHERE state IN ('queued', 'resolving', 'waiting', 'downloading')",
         )
-        .bind(timestamp())
-        .execute(&pool)
+        .bind(&recovery_timestamp)
+        .execute(&mut *recovery)
         .await
         .map_err(|error| storage_error(format!("恢复中断任务失败: {error}")))?;
         sqlx::query(
             "UPDATE track_jobs
              SET state = 'interrupted', updated_at = ?
-             WHERE state IN ('resolving', 'downloading')",
+             WHERE state IN ('queued', 'resolving', 'waiting', 'downloading')",
         )
-        .bind(timestamp())
-        .execute(&pool)
+        .bind(&recovery_timestamp)
+        .execute(&mut *recovery)
         .await
         .map_err(|error| storage_error(format!("恢复中断曲目失败: {error}")))?;
         sqlx::query(
             "UPDATE artwork_jobs
              SET state = 'interrupted', updated_at = ?
-             WHERE state IN ('resolving', 'downloading')",
+             WHERE state IN ('queued', 'resolving', 'waiting', 'downloading')",
         )
-        .bind(timestamp())
-        .execute(&pool)
+        .bind(&recovery_timestamp)
+        .execute(&mut *recovery)
         .await
         .map_err(|error| storage_error(format!("恢复中断原图失败: {error}")))?;
+        recovery
+            .commit()
+            .await
+            .map_err(|error| storage_error(format!("提交启动恢复事务失败: {error}")))?;
 
         Ok(Self { pool })
     }
@@ -145,30 +155,6 @@ impl Storage {
         .fetch_optional(&self.pool)
         .await
         .map_err(|error| storage_error(format!("读取下载任务失败: {error}")))?;
-        row.map(row_to_job).transpose()
-    }
-
-    pub async fn find_active_job_by_source_and_quality(
-        &self,
-        source_url: &str,
-        quality: QualityPreference,
-    ) -> AppResult<Option<AlbumJob>> {
-        let row = sqlx::query(
-            "SELECT id, source_url, title, cover_url, year, platforms_json, album_type,
-                    source_kind, quality, state, selected_track_ids_json,
-                    selected_track_titles_json, total_tracks,
-                    completed_tracks, bytes_received, bytes_total, current_track_title,
-                    error_json, sequence, created_at, updated_at
-             FROM album_jobs
-             WHERE source_url = ? AND quality = ?
-               AND state IN ('queued', 'resolving', 'downloading', 'paused', 'interrupted')
-             ORDER BY created_at DESC LIMIT 1",
-        )
-        .bind(source_url)
-        .bind(token(&quality)?)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|error| storage_error(format!("检查重复任务失败: {error}")))?;
         row.map(row_to_job).transpose()
     }
 
@@ -487,6 +473,61 @@ impl Storage {
         .execute(&self.pool)
         .await
         .map_err(|error| storage_error(format!("更新任务进度失败: {error}")))?;
+        self.get_job(job_id)
+            .await?
+            .ok_or_else(|| storage_error("下载任务不存在"))
+    }
+
+    pub async fn refresh_job_runtime_state(
+        &self,
+        job_id: &str,
+        current_track_title: Option<&str>,
+    ) -> AppResult<AlbumJob> {
+        let result = sqlx::query(
+            "UPDATE album_jobs
+             SET state = CASE
+                     WHEN EXISTS (
+                         SELECT 1 FROM track_jobs
+                         WHERE track_jobs.job_id = album_jobs.id AND state = 'downloading'
+                     ) OR EXISTS (
+                         SELECT 1 FROM artwork_jobs
+                         WHERE artwork_jobs.job_id = album_jobs.id AND state = 'downloading'
+                     ) THEN 'downloading'
+                     WHEN EXISTS (
+                         SELECT 1 FROM track_jobs
+                         WHERE track_jobs.job_id = album_jobs.id AND state = 'resolving'
+                     ) OR EXISTS (
+                         SELECT 1 FROM artwork_jobs
+                         WHERE artwork_jobs.job_id = album_jobs.id AND state = 'resolving'
+                     ) THEN 'resolving'
+                     WHEN EXISTS (
+                         SELECT 1 FROM track_jobs
+                         WHERE track_jobs.job_id = album_jobs.id AND state = 'waiting'
+                     ) OR EXISTS (
+                         SELECT 1 FROM artwork_jobs
+                         WHERE artwork_jobs.job_id = album_jobs.id AND state = 'waiting'
+                     ) THEN 'waiting'
+                     WHEN EXISTS (
+                         SELECT 1 FROM track_jobs
+                         WHERE track_jobs.job_id = album_jobs.id AND state = 'queued'
+                     ) OR EXISTS (
+                         SELECT 1 FROM artwork_jobs
+                         WHERE artwork_jobs.job_id = album_jobs.id AND state = 'queued'
+                     ) THEN 'queued'
+                     ELSE state
+                 END,
+                 current_track_title = ?, sequence = sequence + 1, updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(current_track_title)
+        .bind(timestamp())
+        .bind(job_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|error| storage_error(format!("更新任务运行状态失败: {error}")))?;
+        if result.rows_affected() == 0 {
+            return Err(storage_error("下载任务不存在"));
+        }
         self.get_job(job_id)
             .await?
             .ok_or_else(|| storage_error("下载任务不存在"))
@@ -890,6 +931,64 @@ mod tests {
 
     use super::{Storage, TrackJobRecord};
 
+    fn example_job(state: JobState) -> AlbumJob {
+        AlbumJob {
+            id: "job".to_owned(),
+            album: AlbumSummary {
+                source_url: "https://downloads.khinsider.com/game-soundtracks/album/example"
+                    .to_owned(),
+                title: "Example".to_owned(),
+                cover_url: None,
+                year: None,
+                platforms: Vec::new(),
+                album_type: None,
+                source_kind: SourceKind::Album,
+            },
+            quality: QualityPreference::BestAvailable,
+            state,
+            selected_track_ids: vec!["source-track".to_owned()],
+            selected_track_titles: vec!["Track".to_owned()],
+            total_tracks: 1,
+            completed_tracks: 0,
+            bytes_received: 0,
+            bytes_total: None,
+            current_track_title: None,
+            error: None,
+            sequence: 1,
+            created_at: "0".to_owned(),
+            updated_at: "0".to_owned(),
+        }
+    }
+
+    fn example_track(state: JobState) -> TrackJobRecord {
+        TrackJobRecord {
+            id: "track".to_owned(),
+            job_id: "job".to_owned(),
+            track: TrackSummary {
+                id: "source-track".to_owned(),
+                disc_number: Some(2),
+                index: Some(3),
+                title: "Track".to_owned(),
+                duration_seconds: Some(65),
+                track_page_url:
+                    "https://downloads.khinsider.com/game-soundtracks/album/example/track"
+                        .to_owned(),
+                available_formats: vec!["FLAC".to_owned()],
+            },
+            resolved_media_url: None,
+            output_directory: "C:\\Downloads\\Example".to_owned(),
+            target_path: None,
+            part_path: None,
+            bytes_received: 0,
+            bytes_total: None,
+            state,
+            error: None,
+            retry_count: 0,
+            created_at: "0".to_owned(),
+            updated_at: "0".to_owned(),
+        }
+    }
+
     #[tokio::test]
     async fn applies_all_migrations_to_a_fresh_database() {
         let storage = Storage::open_memory()
@@ -904,60 +1003,10 @@ mod tests {
         let storage = Storage::open_memory()
             .await
             .expect("apply database migrations");
-        let job = AlbumJob {
-            id: "job".to_owned(),
-            album: AlbumSummary {
-                source_url: "https://downloads.khinsider.com/game-soundtracks/album/example"
-                    .to_owned(),
-                title: "Example".to_owned(),
-                cover_url: None,
-                year: None,
-                platforms: Vec::new(),
-                album_type: None,
-                source_kind: SourceKind::Album,
-            },
-            quality: QualityPreference::BestAvailable,
-            state: JobState::Queued,
-            selected_track_ids: vec!["track".to_owned()],
-            selected_track_titles: vec!["Track".to_owned()],
-            total_tracks: 1,
-            completed_tracks: 0,
-            bytes_received: 0,
-            bytes_total: None,
-            current_track_title: None,
-            error: None,
-            sequence: 1,
-            created_at: "0".to_owned(),
-            updated_at: "0".to_owned(),
-        };
+        let job = example_job(JobState::Queued);
         storage.insert_job(&job).await.expect("insert album job");
         storage
-            .insert_track_job(&TrackJobRecord {
-                id: "track".to_owned(),
-                job_id: job.id.clone(),
-                track: TrackSummary {
-                    id: "source-track".to_owned(),
-                    disc_number: Some(2),
-                    index: Some(3),
-                    title: "Track".to_owned(),
-                    duration_seconds: Some(65),
-                    track_page_url:
-                        "https://downloads.khinsider.com/game-soundtracks/album/example/track"
-                            .to_owned(),
-                    available_formats: vec!["FLAC".to_owned()],
-                },
-                resolved_media_url: None,
-                output_directory: "C:\\Downloads\\Example".to_owned(),
-                target_path: None,
-                part_path: None,
-                bytes_received: 0,
-                bytes_total: None,
-                state: JobState::Queued,
-                error: None,
-                retry_count: 0,
-                created_at: "0".to_owned(),
-                updated_at: "0".to_owned(),
-            })
+            .insert_track_job(&example_track(JobState::Queued))
             .await
             .expect("insert track job");
 
@@ -974,5 +1023,136 @@ mod tests {
         assert_eq!(persisted_job.selected_track_titles, vec!["Track"]);
         assert_eq!(persisted_tracks[0].track.disc_number, Some(2));
         assert_eq!(persisted_tracks[0].track.index, Some(3));
+    }
+
+    #[tokio::test]
+    async fn runtime_state_prioritizes_downloads_over_waiters() {
+        let storage = Storage::open_memory()
+            .await
+            .expect("apply database migrations");
+        let mut job = example_job(JobState::Resolving);
+        job.total_tracks = 2;
+        storage.insert_job(&job).await.expect("insert album job");
+        let waiting = example_track(JobState::Waiting);
+        storage
+            .insert_track_job(&waiting)
+            .await
+            .expect("insert waiting track");
+        let mut downloading = example_track(JobState::Downloading);
+        downloading.id = "track-2".to_owned();
+        downloading.track.id = "source-track-2".to_owned();
+        downloading.track.index = Some(4);
+        storage
+            .insert_track_job(&downloading)
+            .await
+            .expect("insert downloading track");
+
+        let active = storage
+            .refresh_job_runtime_state(&job.id, Some("Track"))
+            .await
+            .expect("refresh active state");
+        assert_eq!(active.state, JobState::Downloading);
+
+        downloading.state = JobState::Completed;
+        storage
+            .save_track_job(&downloading)
+            .await
+            .expect("complete downloading track");
+        let waiting_job = storage
+            .refresh_job_runtime_state(&job.id, Some("Track"))
+            .await
+            .expect("refresh waiting state");
+        assert_eq!(waiting_job.state, JobState::Waiting);
+    }
+
+    #[tokio::test]
+    async fn queued_jobs_are_interrupted_when_database_reopens() {
+        let directory =
+            std::env::temp_dir().join(format!("khinfetch-recovery-test-{}", uuid::Uuid::new_v4()));
+        tokio::fs::create_dir_all(&directory)
+            .await
+            .expect("create recovery directory");
+        let database_path = directory.join("recovery.sqlite3");
+        {
+            let storage = Storage::open(&database_path)
+                .await
+                .expect("open recovery database");
+            storage
+                .insert_job(&example_job(JobState::Queued))
+                .await
+                .expect("insert queued job");
+            storage
+                .insert_track_job(&example_track(JobState::Queued))
+                .await
+                .expect("insert queued track");
+            storage.pool.close().await;
+        }
+
+        let storage = Storage::open(&database_path)
+            .await
+            .expect("reopen recovery database");
+        let job = storage
+            .get_job("job")
+            .await
+            .expect("read recovered job")
+            .expect("recovered job exists");
+        let tracks = storage
+            .list_track_jobs("job")
+            .await
+            .expect("read recovered tracks");
+
+        assert_eq!(job.state, JobState::Interrupted);
+        assert_eq!(job.sequence, 2);
+        assert_eq!(tracks[0].state, JobState::Interrupted);
+        storage.pool.close().await;
+        tokio::fs::remove_dir_all(&directory)
+            .await
+            .expect("remove recovery directory");
+    }
+
+    #[tokio::test]
+    async fn waiting_jobs_are_interrupted_when_database_reopens() {
+        let directory = std::env::temp_dir().join(format!(
+            "khinfetch-waiting-recovery-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        tokio::fs::create_dir_all(&directory)
+            .await
+            .expect("create recovery directory");
+        let database_path = directory.join("recovery.sqlite3");
+        {
+            let storage = Storage::open(&database_path)
+                .await
+                .expect("open recovery database");
+            storage
+                .insert_job(&example_job(JobState::Waiting))
+                .await
+                .expect("insert waiting job");
+            storage
+                .insert_track_job(&example_track(JobState::Waiting))
+                .await
+                .expect("insert waiting track");
+            storage.pool.close().await;
+        }
+
+        let storage = Storage::open(&database_path)
+            .await
+            .expect("reopen recovery database");
+        let job = storage
+            .get_job("job")
+            .await
+            .expect("read recovered job")
+            .expect("recovered job exists");
+        let tracks = storage
+            .list_track_jobs("job")
+            .await
+            .expect("read recovered tracks");
+
+        assert_eq!(job.state, JobState::Interrupted);
+        assert_eq!(tracks[0].state, JobState::Interrupted);
+        storage.pool.close().await;
+        tokio::fs::remove_dir_all(&directory)
+            .await
+            .expect("remove recovery directory");
     }
 }

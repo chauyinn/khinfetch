@@ -203,6 +203,11 @@ impl DownloadClient {
         self.remote_size_for(media_url, DownloadKind::Media).await
     }
 
+    pub async fn remote_artwork_size(&self, artwork_url: &Url) -> AppResult<Option<u64>> {
+        self.remote_size_for(artwork_url, DownloadKind::Artwork)
+            .await
+    }
+
     async fn remote_size_for(&self, url: &Url, kind: DownloadKind) -> AppResult<Option<u64>> {
         self.validate_url(url, kind)?;
         let response = self.client(kind).head(url.clone()).send().await;

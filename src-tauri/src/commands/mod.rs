@@ -290,14 +290,6 @@ async fn enqueue_one(
     request: EnqueueAlbumRequest,
 ) -> AppResult<AlbumJob> {
     let source = validate_source_url(&request.source_url)?;
-    if let Some(existing) = state
-        .storage
-        .find_active_job_by_source_and_quality(source.url.as_str(), request.quality)
-        .await?
-    {
-        return Ok(existing);
-    }
-
     let settings = effective_settings(app, state).await?;
     let details = state.khinsider.album_details(&source).await?;
     let selected_tracks = select_tracks(&details, request.selected_track_ids.as_deref())?;

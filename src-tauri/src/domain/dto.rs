@@ -21,6 +21,7 @@ pub enum QualityPreference {
 pub enum JobState {
     Queued,
     Resolving,
+    Waiting,
     Downloading,
     Paused,
     Interrupted,

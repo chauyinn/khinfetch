@@ -61,6 +61,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       selectedTrackIds: [],
       detailsError: null,
       searchSequence: seq,
+      detailsSequence: get().detailsSequence + 1,
     });
 
     if (isDirectSourceInput(targetQuery)) {
