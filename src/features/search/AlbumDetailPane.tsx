@@ -387,6 +387,11 @@ export const AlbumDetailPane: React.FC<AlbumDetailPaneProps> = ({ details, isLoa
                   key={track.id}
                   className={styles.trackRow}
                   onClick={(event) => toggleTrack(track.id, event.shiftKey)}
+                  onMouseDown={(event) => {
+                    if (event.button === 0) {
+                      event.preventDefault();
+                    }
+                  }}
                   tabIndex={0}
                   role="checkbox"
                   aria-checked={isChecked}

@@ -452,7 +452,7 @@
 
 .trackTableContainer {
   flex: 1;
-  overflow-y: auto;
+  overflow: auto;
   padding: 4px 8px;
   min-height: 0;
 }
@@ -462,6 +462,7 @@
   border-collapse: collapse;
   font-size: var(--font-size-xs);
   table-layout: fixed;
+  min-width: 680px;
 }
 
 .trackTable th {
