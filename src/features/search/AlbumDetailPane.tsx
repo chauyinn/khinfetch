@@ -123,7 +123,7 @@ export const AlbumDetailPane: React.FC<AlbumDetailPaneProps> = ({ details, isLoa
       .filter((format): format is string => format !== null),
   ));
   const bestQualityLabel = selectedBestFormats.length === 1
-    ? selectedBestFormats[0]
+    ? strings.search.qualityBestFormat(selectedBestFormats[0])
     : selectedBestFormats.length > 1
       ? strings.search.qualityMixed
       : strings.search.qualityBest;
@@ -361,7 +361,7 @@ export const AlbumDetailPane: React.FC<AlbumDetailPaneProps> = ({ details, isLoa
               <th style={{ width: 36, textAlign: "center" }}>{strings.search.tableHeaderIndex}</th>
               <th>{strings.search.tableHeaderTitle}</th>
               <th style={{ width: 60, textAlign: "right" }}>{strings.search.tableHeaderDuration}</th>
-              <th style={{ width: 190 }}>{strings.search.tableHeaderFormats}</th>
+              <th style={{ width: 228 }}>{strings.search.tableHeaderFormats}</th>
             </tr>
           </thead>
           <tbody>

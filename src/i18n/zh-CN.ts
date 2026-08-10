@@ -23,6 +23,7 @@ export const strings = {
     artworkCount: (count: number) => `${count} 张`,
     qualityLabel: "音质格式",
     qualityBest: "最高音质",
+    qualityBestFormat: (format: string) => `最高音质（${format}）`,
     qualityMixed: "最高音质（混合）",
     qualityMp3: "MP3",
     downloadSelected: (count: number) => `下载已选曲目 (${count})`,

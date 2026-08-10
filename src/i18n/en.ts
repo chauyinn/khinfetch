@@ -25,6 +25,7 @@ export const strings = {
     artworkCount: (count: number) => `${count} image${count === 1 ? "" : "s"}`,
     qualityLabel: "Audio quality",
     qualityBest: "Best quality",
+    qualityBestFormat: (format: string) => `Best quality (${format})`,
     qualityMixed: "Best quality (mixed)",
     qualityMp3: "MP3",
     downloadSelected: (count: number) => `Download selected (${count})`,
