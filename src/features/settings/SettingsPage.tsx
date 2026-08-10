@@ -18,7 +18,7 @@ import type {
 } from "../../api/generated";
 import { backendClient } from "../../api/client";
 import { errorMessage } from "../../api/errors";
-import { useAppStore } from "../../stores/useAppStore";
+import { rememberLanguagePreference, resolveLanguagePreference, useAppStore } from "../../stores/useAppStore";
 import { useToastStore } from "../../stores/useToastStore";
 import { Switch } from "../../components/ui/Switch";
 import { useStrings } from "../../i18n/useStrings";
@@ -67,7 +67,7 @@ export const SettingsPage: React.FC = () => {
         if (!active) return;
         setAppSettings(res);
         setThemeSetting(res.theme);
-        setLanguageSetting(res.language);
+        setLanguageSetting(resolveLanguagePreference());
       })
       .catch((err) => {
         if (!active) return;
@@ -103,6 +103,7 @@ export const SettingsPage: React.FC = () => {
         setThemeSetting(patch.theme);
       }
       if (patch.language) {
+        rememberLanguagePreference(patch.language);
         setLanguageSetting(patch.language);
       }
     } catch (error) {

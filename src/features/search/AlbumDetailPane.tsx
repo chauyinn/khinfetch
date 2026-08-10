@@ -366,8 +366,12 @@ export const AlbumDetailPane: React.FC<AlbumDetailPaneProps> = ({ details, isLoa
               <th style={{ width: 36, textAlign: "center" }}>{strings.search.tableHeaderIndex}</th>
               <th>{strings.search.tableHeaderTitle}</th>
               <th style={{ width: 60, textAlign: "right" }}>{strings.search.tableHeaderDuration}</th>
-              <th style={{ width: 44, textAlign: "center" }}>{strings.search.tableHeaderPreview}</th>
-              <th style={{ width: 228 }}>{strings.search.tableHeaderFormats}</th>
+              <th className={styles.previewColumn} style={{ width: 72, textAlign: "center" }}>
+                {strings.search.tableHeaderPreview}
+              </th>
+              <th className={styles.formatsColumn} style={{ width: 260 }}>
+                {strings.search.tableHeaderFormats}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -437,7 +441,7 @@ export const AlbumDetailPane: React.FC<AlbumDetailPaneProps> = ({ details, isLoa
                   <td style={{ textAlign: "right", color: "var(--text-secondary)", fontSize: "var(--font-size-xs)" }}>
                     {formatDuration(track.durationSeconds)}
                   </td>
-                  <td style={{ textAlign: "center" }} onClick={(event) => event.stopPropagation()}>
+                  <td className={styles.previewColumn} onClick={(event) => event.stopPropagation()}>
                     <Tooltip
                       content={hasMp3
                         ? isCurrentPreview && isPreviewPlaying
@@ -464,7 +468,7 @@ export const AlbumDetailPane: React.FC<AlbumDetailPaneProps> = ({ details, isLoa
                       </span>
                     </Tooltip>
                   </td>
-                  <td>
+                  <td className={styles.formatsColumn}>
                     <div className={styles.formatList}>
                       {variants.map((variant) => (
                         <span key={variant.format} className={styles.tag}>

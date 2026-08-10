@@ -480,6 +480,15 @@
   vertical-align: middle;
 }
 
+.previewColumn {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.formatsColumn {
+  white-space: nowrap;
+}
+
 .trackRow:hover {
   background-color: var(--bg-surface-hover);
 }
@@ -491,7 +500,7 @@
 
 .formatList {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 

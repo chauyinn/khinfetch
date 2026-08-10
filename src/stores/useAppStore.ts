@@ -34,6 +34,48 @@ const applyLanguageToDOM = (language: LanguagePreference) => {
   document.documentElement.lang = language === "zh-cn" ? "zh-CN" : "en";
 };
 
+const LANGUAGE_PREFERENCE_STORAGE_KEY = "khinfetch.languagePreference";
+
+const isLanguagePreference = (value: string | null): value is LanguagePreference =>
+  value === "zh-cn" || value === "en";
+
+export const getSystemLanguagePreference = (): LanguagePreference => {
+  if (typeof navigator === "undefined") {
+    return "en";
+  }
+
+  const locale = navigator.languages?.[0] ?? navigator.language;
+  return locale?.split("-")[0].toLowerCase() === "zh" ? "zh-cn" : "en";
+};
+
+export const getStoredLanguagePreference = (): LanguagePreference | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const stored = window.localStorage.getItem(LANGUAGE_PREFERENCE_STORAGE_KEY);
+    return isLanguagePreference(stored) ? stored : null;
+  } catch {
+    return null;
+  }
+};
+
+export const rememberLanguagePreference = (language: LanguagePreference) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(LANGUAGE_PREFERENCE_STORAGE_KEY, language);
+  } catch {
+    // The app can still use the selected language for the current session.
+  }
+};
+
+export const resolveLanguagePreference = (): LanguagePreference =>
+  getStoredLanguagePreference() ?? getSystemLanguagePreference();
+
 export const useAppStore = create<AppState>((set, get) => {
   // Listen to system theme changes if matchMedia exists
   if (typeof window !== "undefined" && window.matchMedia) {
@@ -54,7 +96,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
   const initialSetting: ThemePreference = "system";
   const initialEffective = resolveEffectiveTheme(initialSetting);
-  const initialLanguage: LanguagePreference = "zh-cn";
+  const initialLanguage = resolveLanguagePreference();
   applyLanguageToDOM(initialLanguage);
 
   return {

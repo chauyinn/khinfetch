@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { Search, Download, Settings } from "lucide-react";
-import { useAppStore, type NavTab } from "../../stores/useAppStore";
+import { resolveLanguagePreference, useAppStore, type NavTab } from "../../stores/useAppStore";
 import { useJobsStore } from "../../stores/useJobsStore";
 import { TooltipProvider } from "../ui/Tooltip";
 import { ToastContainer } from "../ui/Toast";
@@ -50,7 +50,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         if (!active) return;
         setSettings(settings);
         setThemeSetting(settings.theme);
-        setLanguageSetting(settings.language);
+        // First launch follows the system; explicit choices are tracked in local storage.
+        setLanguageSetting(resolveLanguagePreference());
       })
       .catch((error) => {
         if (!active) return;
