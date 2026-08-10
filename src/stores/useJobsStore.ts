@@ -23,6 +23,7 @@ interface JobsState {
 
   pauseAllJobs: () => Promise<void>;
   resumeAllJobs: () => Promise<void>;
+  removeAllJobs: () => Promise<void>;
 }
 
 let jobsEventRevision = 0;
@@ -196,5 +197,27 @@ export const useJobsStore = create<JobsState>((set, get) => ({
       useToastStore.getState().showToast(strings.toast.resumeAllError(rejected.length), "error");
     }
     await get().refreshJobs();
+  },
+
+  removeAllJobs: async () => {
+    const initialJobs = get().jobs;
+    if (initialJobs.length === 0) return;
+
+    const targetIds = new Set(initialJobs.map((job) => job.id));
+    const activeJobs = initialJobs.filter(isActiveJob);
+    await Promise.allSettled(activeJobs.map((job) => backendClient.cancelJob(job.id)));
+    await get().refreshJobs();
+
+    const removableJobs = get().jobs.filter((job) => targetIds.has(job.id) && !isActiveJob(job));
+    await Promise.allSettled(removableJobs.map((job) => backendClient.removeJob(job.id)));
+    await get().refreshJobs();
+
+    const remaining = get().jobs.filter((job) => targetIds.has(job.id)).length;
+    const strings = getStrings(useAppStore.getState().languageSetting);
+    if (remaining > 0) {
+      useToastStore.getState().showToast(strings.toast.clearQueueError(remaining), "error");
+    } else {
+      useToastStore.getState().showToast(strings.toast.clearQueueSuccess(initialJobs.length), "success");
+    }
   },
 }));

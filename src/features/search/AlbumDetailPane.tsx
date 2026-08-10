@@ -351,7 +351,6 @@ export const AlbumDetailPane: React.FC<AlbumDetailPaneProps> = ({ details, isLoa
         <table className={styles.trackTable}>
           <thead>
             <tr>
-              <th style={{ width: 34 }} aria-label={strings.search.tableHeaderPreview} />
               <th style={{ width: 36, textAlign: "center" }}>
                 <button
                   type="button"
@@ -367,6 +366,7 @@ export const AlbumDetailPane: React.FC<AlbumDetailPaneProps> = ({ details, isLoa
               <th style={{ width: 36, textAlign: "center" }}>{strings.search.tableHeaderIndex}</th>
               <th>{strings.search.tableHeaderTitle}</th>
               <th style={{ width: 60, textAlign: "right" }}>{strings.search.tableHeaderDuration}</th>
+              <th style={{ width: 44, textAlign: "center" }}>{strings.search.tableHeaderPreview}</th>
               <th style={{ width: 228 }}>{strings.search.tableHeaderFormats}</th>
             </tr>
           </thead>
@@ -395,33 +395,6 @@ export const AlbumDetailPane: React.FC<AlbumDetailPaneProps> = ({ details, isLoa
                   }}
                   style={{ cursor: "pointer" }}
                 >
-                  <td style={{ textAlign: "center" }} onClick={(event) => event.stopPropagation()}>
-                    <Tooltip
-                      content={hasMp3
-                        ? isCurrentPreview && isPreviewPlaying
-                          ? strings.search.previewPause
-                          : strings.search.previewPlay
-                        : strings.search.previewUnavailable}
-                    >
-                      <span className={styles.previewButtonTooltip}>
-                        <button
-                          type="button"
-                          className={styles.previewButton}
-                          disabled={!hasMp3 || (isCurrentPreview && isPreviewLoading)}
-                          aria-label={hasMp3 ? strings.search.previewTrack(track.title) : strings.search.previewUnavailable}
-                          onClick={() => void togglePreview(track)}
-                        >
-                          {isCurrentPreview && isPreviewLoading ? (
-                            <Loader2 size={15} className={styles.spin} />
-                          ) : isCurrentPreview && isPreviewPlaying ? (
-                            <Pause size={15} />
-                          ) : (
-                            <Play size={15} />
-                          )}
-                        </button>
-                      </span>
-                    </Tooltip>
-                  </td>
                   <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
@@ -463,6 +436,33 @@ export const AlbumDetailPane: React.FC<AlbumDetailPaneProps> = ({ details, isLoa
                   </td>
                   <td style={{ textAlign: "right", color: "var(--text-secondary)", fontSize: "var(--font-size-xs)" }}>
                     {formatDuration(track.durationSeconds)}
+                  </td>
+                  <td style={{ textAlign: "center" }} onClick={(event) => event.stopPropagation()}>
+                    <Tooltip
+                      content={hasMp3
+                        ? isCurrentPreview && isPreviewPlaying
+                          ? strings.search.previewPause
+                          : strings.search.previewPlay
+                        : strings.search.previewUnavailable}
+                    >
+                      <span className={styles.previewButtonTooltip}>
+                        <button
+                          type="button"
+                          className={styles.previewButton}
+                          disabled={!hasMp3 || (isCurrentPreview && isPreviewLoading)}
+                          aria-label={hasMp3 ? strings.search.previewTrack(track.title) : strings.search.previewUnavailable}
+                          onClick={() => void togglePreview(track)}
+                        >
+                          {isCurrentPreview && isPreviewLoading ? (
+                            <Loader2 size={15} className={styles.spin} />
+                          ) : isCurrentPreview && isPreviewPlaying ? (
+                            <Pause size={15} />
+                          ) : (
+                            <Play size={15} />
+                          )}
+                        </button>
+                      </span>
+                    </Tooltip>
                   </td>
                   <td>
                     <div className={styles.formatList}>

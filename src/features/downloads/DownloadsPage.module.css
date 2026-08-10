@@ -56,6 +56,113 @@
   background-color: var(--bg-surface-hover);
 }
 
+.actionBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.dangerActionBtn {
+  color: var(--color-danger);
+  background-color: var(--color-danger-bg);
+}
+
+.dangerActionBtn:hover:not(:disabled) {
+  background-color: var(--color-danger-bg);
+}
+
+.confirmOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background-color: rgba(15, 23, 42, 0.48);
+}
+
+.confirmContent {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 1001;
+  width: min(420px, calc(100vw - 32px));
+  padding: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  transform: translate(-50%, -50%);
+  background-color: var(--bg-surface);
+  box-shadow: var(--shadow-md);
+}
+
+.confirmTitle {
+  color: var(--text-primary);
+  font-size: var(--font-size-md);
+  font-weight: 700;
+}
+
+.confirmDescription {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.confirmActions {
+  margin-top: 18px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.confirmCancelBtn,
+.confirmDangerBtn {
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.confirmCancelBtn {
+  border: 1px solid var(--border-strong);
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.confirmCancelBtn:hover:not(:disabled) {
+  background-color: var(--bg-surface-hover);
+}
+
+.confirmDangerBtn {
+  background-color: var(--color-danger);
+  color: #ffffff;
+}
+
+.confirmDangerBtn:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+.confirmCancelBtn:disabled,
+.confirmDangerBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.confirmCancelBtn:focus-visible,
+.confirmDangerBtn:focus-visible,
+.dangerActionBtn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.spinner {
+  animation: spin 800ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .queueList {
   flex: 1;
   overflow-y: auto;
