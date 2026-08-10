@@ -23,12 +23,15 @@
 ## Features
 
 - Search Khinsider albums or open an album or playlist URL directly.
-- Select individual tracks or add multiple album and playlist links in a batch.
-- Prefer the best available audio format or download MP3 only.
+- Inspect album metadata, track duration, available formats, and file sizes before downloading.
+- Preview available MP3 audio.
+- Prefer the best format available for each track, with automatic lossy fallback and clear mixed-quality labels, or download MP3 only.
+- Add multiple album and playlist links in a batch.
 - Optionally save original album artwork alongside audio files.
-- Pause, resume, retry, cancel, and inspect persistent download jobs.
-- Recover interrupted jobs from the SQLite-backed queue.
-- Use the interface in English or Simplified Chinese, with light, dark, and system themes.
+- Pause, resume, retry, cancel, and inspect persistent album, track, and artwork jobs.
+- Recover interrupted jobs and progress from the SQLite-backed queue.
+- Configure concurrency, download quality, artwork, file verification, logging, theme, and interface language.
+- Use the interface in English or Simplified Chinese; first launch follows the system language, and the theme can follow the system or be set explicitly.
 
 ## Screenshots
 
