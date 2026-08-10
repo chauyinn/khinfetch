@@ -23,6 +23,18 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const strings = useStrings();
 
   useEffect(() => {
+    const suppressContextMenu = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) {
+        return;
+      }
+      event.preventDefault();
+    };
+    document.addEventListener("contextmenu", suppressContextMenu);
+    return () => document.removeEventListener("contextmenu", suppressContextMenu);
+  }, []);
+
+  useEffect(() => {
     // Initialize jobs store & listeners
     const cleanupPromise = initialize();
     return () => {

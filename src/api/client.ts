@@ -13,11 +13,13 @@ import type {
   BatchEnqueueResult,
   EnqueueAlbumRequest,
   TrackProgressEvent,
+  TrackPreview,
 } from "./generated";
 
 export interface BackendClient {
   searchAlbums(query: string): Promise<AlbumSummary[]>;
   getAlbumDetails(sourceUrl: string): Promise<AlbumDetails>;
+  getTrackPreview(trackPageUrl: string): Promise<TrackPreview>;
   enqueueAlbum(request: EnqueueAlbumRequest): Promise<AlbumJob>;
   enqueueUrls(request: BatchEnqueueRequest): Promise<BatchEnqueueResult>;
   listJobs(): Promise<AlbumJob[]>;
@@ -45,6 +47,10 @@ class TauriBackendClient implements BackendClient {
 
   getAlbumDetails(sourceUrl: string) {
     return invoke<AlbumDetails>("get_album_details", { sourceUrl });
+  }
+
+  getTrackPreview(trackPageUrl: string) {
+    return invoke<TrackPreview>("get_track_preview", { trackPageUrl });
   }
 
   enqueueAlbum(request: EnqueueAlbumRequest) {

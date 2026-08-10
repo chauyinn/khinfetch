@@ -22,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data: https://downloads.khinsider.com https://images.khinsider.com https://vgmtreasurechest.com https://*.vgmtreasurechest.com https://vgmsite.com https://*.vgmsite.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data: https://downloads.khinsider.com https://images.khinsider.com https://vgmtreasurechest.com https://*.vgmtreasurechest.com https://vgmsite.com https://*.vgmsite.com; media-src 'self' https://downloads.khinsider.com https://vgmtreasurechest.com https://*.vgmtreasurechest.com https://vgmsite.com https://*.vgmsite.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
     }
   },
   "bundle": {

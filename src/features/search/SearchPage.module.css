@@ -370,6 +370,81 @@
   outline: 2px solid var(--color-accent);
 }
 
+.previewBar {
+  min-height: 42px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background-color: var(--bg-surface);
+  flex-shrink: 0;
+}
+
+.previewTrackInfo {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+}
+
+.previewTrackInfo svg {
+  flex-shrink: 0;
+  color: var(--color-accent);
+}
+
+.previewTitle {
+  display: block;
+  min-width: 0;
+  font-size: var(--font-size-xs);
+}
+
+.previewAudio {
+  width: min(320px, 52%);
+  height: 30px;
+  flex-shrink: 0;
+}
+
+.previewButton {
+  width: 26px;
+  height: 26px;
+  color: var(--text-secondary);
+  border-radius: var(--radius-xs);
+}
+
+.previewButtonTooltip {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+}
+
+.previewButton:hover:not(:disabled) {
+  color: var(--color-accent);
+  background-color: var(--bg-surface-hover);
+}
+
+.previewButton:disabled {
+  color: var(--text-muted);
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.previewButton:focus-visible {
+  outline: 2px solid var(--color-accent);
+}
+
+.spin {
+  animation: preview-spin 0.9s linear infinite;
+}
+
+@keyframes preview-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .trackTableContainer {
   flex: 1;
   overflow-y: auto;
@@ -407,6 +482,46 @@
 .trackRow:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: -2px;
+}
+
+.formatList {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.tag {
+  min-width: 78px;
+  min-height: 24px;
+  padding: 3px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  background-color: var(--bg-app);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tag strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+@media (max-width: 1040px) {
+  .previewBar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .previewAudio {
+    width: 100%;
+  }
 }
 
 .enqueueBtn {

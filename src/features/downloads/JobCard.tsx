@@ -14,7 +14,16 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
   const strings = useStrings();
   const { pauseJob, resumeJob, cancelJob, retryJob, removeJob } = useJobsStore();
 
-  const { album, quality, state, selectedTrackTitles = [], completedTracks, totalTracks, error } = job;
+  const {
+    album,
+    quality,
+    selectedFormats = [],
+    state,
+    selectedTrackTitles = [],
+    completedTracks,
+    totalTracks,
+    error,
+  } = job;
   const isRunning = state === "downloading" || state === "resolving" || state === "waiting" || state === "queued";
   const progressPercent = totalTracks > 0 ? Math.round((completedTracks / totalTracks) * 100) : 0;
   const previewTitles = selectedTrackTitles.slice(0, 2);
@@ -28,6 +37,11 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
   const selectionDetails = detailTitles.length > 0
     ? strings.downloads.selectedTrackDetails(detailTitles, selectedTrackTitles.length - detailTitles.length)
     : selectionSummary;
+  const qualityLabel = selectedFormats.length > 0
+    ? selectedFormats.join(" / ")
+    : quality === "mp3"
+      ? strings.downloads.qualityMp3
+      : strings.downloads.qualityBest;
 
   const renderStateBadge = (s: JobState) => {
     switch (s) {
@@ -68,7 +82,7 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
               <span className={`${styles.jobTitle} truncate`}>{album.title}</span>
             </Tooltip>
             <span className={styles.jobQuality}>
-              {quality === "mp3" ? strings.downloads.qualityMp3 : strings.downloads.qualityBest}
+              {qualityLabel}
             </span>
             {renderStateBadge(state)}
           </div>

@@ -9,8 +9,9 @@ use tauri::Manager;
 
 use commands::{
     cancel_job, choose_download_directory, enqueue_album, enqueue_urls, get_album_details,
-    get_settings, list_jobs, open_download_directory, open_external_url, open_log_directory,
-    pause_job, remove_job, resume_job, retry_job, search_albums, update_settings, AppState,
+    get_settings, get_track_preview, list_jobs, open_download_directory, open_external_url,
+    open_log_directory, pause_job, remove_job, resume_job, retry_job, search_albums,
+    update_settings, AppState,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -36,6 +37,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             search_albums,
             get_album_details,
+            get_track_preview,
             list_jobs,
             get_settings,
             update_settings,

@@ -129,7 +129,7 @@ impl Storage {
         let rows = sqlx::query(
             "SELECT id, source_url, title, cover_url, year, platforms_json, album_type,
                     source_kind, quality, state, selected_track_ids_json,
-                    selected_track_titles_json, total_tracks,
+                    selected_track_titles_json, selected_formats_json, total_tracks,
                     completed_tracks, bytes_received, bytes_total, current_track_title,
                     error_json, sequence, created_at, updated_at
              FROM album_jobs
@@ -146,7 +146,7 @@ impl Storage {
         let row = sqlx::query(
             "SELECT id, source_url, title, cover_url, year, platforms_json, album_type,
                     source_kind, quality, state, selected_track_ids_json,
-                    selected_track_titles_json, total_tracks,
+                    selected_track_titles_json, selected_formats_json, total_tracks,
                     completed_tracks, bytes_received, bytes_total, current_track_title,
                     error_json, sequence, created_at, updated_at
              FROM album_jobs WHERE id = ?",
@@ -219,10 +219,10 @@ impl Storage {
             "INSERT INTO album_jobs (
                 id, source_url, title, cover_url, year, platforms_json, album_type,
                 source_kind, quality, state, selected_track_ids_json,
-                selected_track_titles_json, total_tracks,
+                selected_track_titles_json, selected_formats_json, total_tracks,
                 completed_tracks, bytes_received, bytes_total, current_track_title,
                 error_json, sequence, created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&job.id)
         .bind(&job.album.source_url)
@@ -236,6 +236,7 @@ impl Storage {
         .bind(token(&job.state)?)
         .bind(json(&job.selected_track_ids)?)
         .bind(json(&job.selected_track_titles)?)
+        .bind(json(&job.selected_formats)?)
         .bind(i64::from(job.total_tracks))
         .bind(i64::from(job.completed_tracks))
         .bind(
@@ -275,10 +276,10 @@ impl Storage {
             "INSERT INTO album_jobs (
                 id, source_url, title, cover_url, year, platforms_json, album_type,
                 source_kind, quality, download_artwork, state, selected_track_ids_json,
-                selected_track_titles_json, total_tracks,
+                selected_track_titles_json, selected_formats_json, total_tracks,
                 completed_tracks, bytes_received, bytes_total, current_track_title,
                 error_json, sequence, created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&job.id)
         .bind(&job.album.source_url)
@@ -293,6 +294,7 @@ impl Storage {
         .bind(token(&job.state)?)
         .bind(json(&job.selected_track_ids)?)
         .bind(json(&job.selected_track_titles)?)
+        .bind(json(&job.selected_formats)?)
         .bind(i64::from(job.total_tracks))
         .bind(i64::from(job.completed_tracks))
         .bind(
@@ -761,6 +763,7 @@ fn row_to_job(row: sqlx::sqlite::SqliteRow) -> AppResult<AlbumJob> {
             source_kind: parse_token(row_string(&row, "source_kind")?)?,
         },
         quality: parse_token(row_string(&row, "quality")?)?,
+        selected_formats: parse_json(row_string(&row, "selected_formats_json")?)?,
         state: parse_token(row_string(&row, "state")?)?,
         selected_track_ids: parse_json(row_string(&row, "selected_track_ids_json")?)?,
         selected_track_titles: parse_json(row_string(&row, "selected_track_titles_json")?)?,
@@ -822,6 +825,7 @@ fn row_to_track_job(row: sqlx::sqlite::SqliteRow) -> AppResult<TrackJobRecord> {
             duration_seconds,
             track_page_url: row_string(&row, "track_page_url")?,
             available_formats: parse_json(row_string(&row, "available_formats_json")?)?,
+            available_variants: Vec::new(),
         },
         resolved_media_url: row
             .try_get("resolved_media_url")
@@ -945,6 +949,7 @@ mod tests {
                 source_kind: SourceKind::Album,
             },
             quality: QualityPreference::BestAvailable,
+            selected_formats: vec!["FLAC".to_owned()],
             state,
             selected_track_ids: vec!["source-track".to_owned()],
             selected_track_titles: vec!["Track".to_owned()],
@@ -974,6 +979,7 @@ mod tests {
                     "https://downloads.khinsider.com/game-soundtracks/album/example/track"
                         .to_owned(),
                 available_formats: vec!["FLAC".to_owned()],
+                available_variants: Vec::new(),
             },
             resolved_media_url: None,
             output_directory: "C:\\Downloads\\Example".to_owned(),
@@ -1021,6 +1027,7 @@ mod tests {
             .expect("read track jobs");
 
         assert_eq!(persisted_job.selected_track_titles, vec!["Track"]);
+        assert_eq!(persisted_job.selected_formats, vec!["FLAC"]);
         assert_eq!(persisted_tracks[0].track.disc_number, Some(2));
         assert_eq!(persisted_tracks[0].track.index, Some(3));
     }

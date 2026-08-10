@@ -67,6 +67,7 @@ pub struct TrackSummary {
     pub duration_seconds: Option<u32>,
     pub track_page_url: String,
     pub available_formats: Vec<String>,
+    pub available_variants: Vec<VariantSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,6 +111,7 @@ pub struct AlbumJob {
     pub id: String,
     pub album: AlbumSummary,
     pub quality: QualityPreference,
+    pub selected_formats: Vec<String>,
     pub state: JobState,
     pub selected_track_ids: Vec<String>,
     pub selected_track_titles: Vec<String>,
@@ -122,6 +124,14 @@ pub struct AlbumJob {
     pub sequence: u64,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackPreview {
+    pub media_url: String,
+    pub format: String,
+    pub size_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

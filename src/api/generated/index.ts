@@ -16,5 +16,6 @@ export type { QualityPreference } from "./QualityPreference";
 export type { SourceKind } from "./SourceKind";
 export type { ThemePreference } from "./ThemePreference";
 export type { TrackProgressEvent } from "./TrackProgressEvent";
+export type { TrackPreview } from "./TrackPreview";
 export type { TrackSummary } from "./TrackSummary";
 export type { VariantSummary } from "./VariantSummary";

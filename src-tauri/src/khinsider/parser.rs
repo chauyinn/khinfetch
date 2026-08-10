@@ -3,7 +3,9 @@ use scraper::{ElementRef, Html, Selector};
 use url::Url;
 use uuid::Uuid;
 
-use crate::domain::{AlbumDetails, AlbumSummary, AppError, SourceKind, TrackSummary};
+use crate::domain::{
+    AlbumDetails, AlbumSummary, AppError, SourceKind, TrackSummary, VariantSummary,
+};
 
 use super::url_policy::{validate_artwork_url, validate_media_url};
 
@@ -133,7 +135,7 @@ pub(crate) fn parse_album_details(
     let cover_url =
         parse_cover_preview(&document, source_url).or_else(|| artwork_urls.first().cloned());
     let available_formats = parse_formats(&document);
-    let tracks = parse_tracks(&document, source_url, &available_formats)?;
+    let tracks = parse_tracks(&document, source_url)?;
     let summary = AlbumSummary {
         source_url: source_url.to_string(),
         title,
@@ -322,11 +324,7 @@ fn parse_formats(document: &Html) -> Vec<String> {
         })
 }
 
-fn parse_tracks(
-    document: &Html,
-    source_url: &Url,
-    available_formats: &[String],
-) -> Result<Vec<TrackSummary>, ParseError> {
+fn parse_tracks(document: &Html, source_url: &Url) -> Result<Vec<TrackSummary>, ParseError> {
     let row_selector = selector("#songlist tr")?;
     let cell_selector = selector("td")?;
     let anchor_selector = selector("a[href]")?;
@@ -365,6 +363,22 @@ fn parse_tracks(
             let seconds: u32 = captures.get(2)?.as_str().parse().ok()?;
             (seconds < 60).then_some(minutes * 60 + seconds)
         });
+        let available_variants = columns
+            .formats
+            .iter()
+            .filter_map(|(column, format)| {
+                let cell = cells.get(*column)?;
+                let value = text(*cell);
+                (!value.is_empty()).then(|| VariantSummary {
+                    format: format.clone(),
+                    size_bytes: parse_size_bytes(&value),
+                })
+            })
+            .collect::<Vec<_>>();
+        let available_formats = available_variants
+            .iter()
+            .map(|variant| variant.format.clone())
+            .collect();
         let id = Uuid::new_v5(&Uuid::NAMESPACE_URL, track_url.as_str().as_bytes()).to_string();
         tracks.push(TrackSummary {
             id,
@@ -373,7 +387,8 @@ fn parse_tracks(
             title: text(track_anchor),
             duration_seconds,
             track_page_url: track_url.to_string(),
-            available_formats: available_formats.to_vec(),
+            available_formats,
+            available_variants,
         });
     }
     Ok(tracks)
@@ -383,6 +398,7 @@ fn parse_tracks(
 struct TrackColumns {
     disc_number: Option<usize>,
     index: Option<usize>,
+    formats: Vec<(usize, String)>,
 }
 
 fn parse_track_columns(document: &Html) -> Result<TrackColumns, ParseError> {
@@ -394,6 +410,9 @@ fn parse_track_columns(document: &Html) -> Result<TrackColumns, ParseError> {
         match text(header).trim().to_ascii_uppercase().as_str() {
             "CD" => columns.disc_number = Some(column_index),
             "#" => columns.index = Some(column_index),
+            format if ["MP3", "FLAC", "ALAC", "AAC", "M4A", "OGG"].contains(&format) => {
+                columns.formats.push((column_index, format.to_owned()));
+            }
             _ => {}
         }
         let colspan = header
@@ -492,11 +511,15 @@ mod tests {
             Url::parse("https://downloads.khinsider.com/game-soundtracks/album/example")
                 .expect("valid source URL");
 
-        let tracks =
-            parse_tracks(&document, &source_url, &["MP3".to_owned()]).expect("parse track list");
+        let tracks = parse_tracks(&document, &source_url).expect("parse track list");
 
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].disc_number, Some(2));
         assert_eq!(tracks[0].index, Some(3));
+        assert_eq!(tracks[0].available_formats, vec!["MP3", "FLAC"]);
+        assert_eq!(
+            tracks[0].available_variants[0].size_bytes,
+            Some(1024 * 1024)
+        );
     }
 }

@@ -11,9 +11,13 @@ use uuid::Uuid;
 use crate::domain::{
     AlbumDetails, AlbumJob, AlbumSummary, AppError, AppResult, AppSettings, AppSettingsPatch,
     BackendNotice, BatchEnqueueRequest, BatchEnqueueResult, EnqueueAlbumRequest, EnqueueFailure,
-    ErrorCode, JobState,
+    ErrorCode, JobState, QualityPreference, TrackPreview, TrackSummary,
 };
-use crate::downloads::{manager::DownloadManager, naming::sanitize_component};
+use crate::downloads::{
+    manager::DownloadManager,
+    naming::sanitize_component,
+    variant::{format_rank, select_format, select_variant},
+};
 use crate::khinsider::{validate_source_url, KhinsiderClient};
 use crate::logging::{redact, LoggingHandle};
 use crate::storage::{timestamp, ArtworkJobRecord, Storage, TrackJobRecord};
@@ -73,6 +77,23 @@ pub async fn get_album_details(
 ) -> AppResult<AlbumDetails> {
     let source = validate_source_url(&source_url)?;
     state.khinsider.album_details(&source).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_track_preview(
+    state: State<'_, AppState>,
+    track_page_url: String,
+) -> AppResult<TrackPreview> {
+    let variants = state
+        .khinsider
+        .resolve_track_variants(&track_page_url)
+        .await?;
+    let selected = select_variant(&variants, QualityPreference::Mp3)?;
+    Ok(TrackPreview {
+        media_url: selected.media_url.to_string(),
+        format: selected.format,
+        size_bytes: selected.size_bytes,
+    })
 }
 
 #[tauri::command]
@@ -310,10 +331,12 @@ async fn enqueue_one(
         .iter()
         .map(|track| track.title.clone())
         .collect::<Vec<_>>();
+    let selected_formats = formats_for_tracks(&selected_tracks, request.quality);
     let job = AlbumJob {
         id: job_id.clone(),
         album: details.summary,
         quality: request.quality,
+        selected_formats,
         state: JobState::Queued,
         selected_track_ids: selected_track_ids.clone(),
         selected_track_titles,
@@ -394,6 +417,32 @@ async fn enqueue_one(
     Ok(job)
 }
 
+fn formats_for_tracks(tracks: &[TrackSummary], quality: QualityPreference) -> Vec<String> {
+    let mut selected = Vec::new();
+    for track in tracks {
+        let format = if track.available_variants.is_empty() {
+            select_format(track.available_formats.iter().map(String::as_str), quality)
+        } else {
+            select_format(
+                track
+                    .available_variants
+                    .iter()
+                    .map(|variant| variant.format.as_str()),
+                quality,
+            )
+        };
+        let Some(format) = format else {
+            continue;
+        };
+        let format = format.to_ascii_uppercase();
+        if !selected.contains(&format) {
+            selected.push(format);
+        }
+    }
+    selected.sort_by_key(|format| format_rank(format).unwrap_or(u8::MAX));
+    selected
+}
+
 fn track_job_id(job_id: &str, source_track_id: &str) -> String {
     Uuid::new_v5(
         &Uuid::NAMESPACE_URL,
@@ -472,7 +521,43 @@ fn file_error(error: std::io::Error) -> AppError {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_external_url;
+    use super::{formats_for_tracks, validate_external_url};
+    use crate::domain::{QualityPreference, TrackSummary, VariantSummary};
+
+    fn track_with_formats(formats: &[&str]) -> TrackSummary {
+        TrackSummary {
+            id: "track".to_owned(),
+            disc_number: None,
+            index: None,
+            title: "Track".to_owned(),
+            duration_seconds: None,
+            track_page_url: "https://downloads.khinsider.com/game-soundtracks/album/example/track"
+                .to_owned(),
+            available_formats: formats.iter().map(|format| (*format).to_owned()).collect(),
+            available_variants: formats
+                .iter()
+                .map(|format| VariantSummary {
+                    format: (*format).to_owned(),
+                    size_bytes: None,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn job_formats_are_unique_and_sorted_by_quality() {
+        let tracks = [
+            track_with_formats(&["MP3"]),
+            track_with_formats(&["MP3", "OGG"]),
+            track_with_formats(&["MP3", "FLAC"]),
+        ];
+
+        assert_eq!(
+            formats_for_tracks(&tracks, QualityPreference::BestAvailable),
+            ["FLAC", "OGG", "MP3"]
+        );
+        assert_eq!(formats_for_tracks(&tracks, QualityPreference::Mp3), ["MP3"]);
+    }
 
     #[test]
     fn external_urls_are_restricted_to_declared_project_links() {
