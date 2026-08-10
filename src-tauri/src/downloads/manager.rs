@@ -1016,7 +1016,15 @@ async fn prepare_paths(
     cancellation: &CancellationToken,
 ) -> AppResult<(PathBuf, PathBuf, bool)> {
     if let (Some(target), Some(part)) = (&track.target_path, &track.part_path) {
-        return Ok((PathBuf::from(target), PathBuf::from(part), false));
+        return reconcile_persisted_paths(
+            Path::new(target),
+            Path::new(part),
+            requested,
+            track.bytes_total,
+            cancellation,
+            || downloader.remote_size(media_url),
+        )
+        .await;
     }
     if let Some(directory) = requested.parent() {
         tokio::fs::create_dir_all(directory)
@@ -1061,7 +1069,15 @@ async fn prepare_artwork_paths(
     cancellation: &CancellationToken,
 ) -> AppResult<(PathBuf, PathBuf, bool)> {
     if let (Some(target), Some(part)) = (&artwork.target_path, &artwork.part_path) {
-        return Ok((PathBuf::from(target), PathBuf::from(part), false));
+        return reconcile_persisted_paths(
+            Path::new(target),
+            Path::new(part),
+            requested,
+            artwork.bytes_total,
+            cancellation,
+            || downloader.remote_artwork_size(artwork_url),
+        )
+        .await;
     }
     if let Some(directory) = requested.parent() {
         tokio::fs::create_dir_all(directory)
@@ -1094,15 +1110,81 @@ async fn prepare_artwork_paths(
     Ok((target, part, false))
 }
 
-async fn remove_part_path(path: Option<&str>) -> AppResult<()> {
-    let Some(path) = path else {
-        return Ok(());
+async fn reconcile_persisted_paths<F, Fut>(
+    target: &Path,
+    part: &Path,
+    requested: &Path,
+    bytes_total: Option<u64>,
+    cancellation: &CancellationToken,
+    remote_size: F,
+) -> AppResult<(PathBuf, PathBuf, bool)>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = AppResult<Option<u64>>>,
+{
+    let metadata = match tokio::fs::metadata(target).await {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok((target.to_owned(), part.to_owned(), false));
+        }
+        Err(error) => return Err(file_error(error)),
     };
+    let expected_size = match bytes_total {
+        Some(size) => Some(size),
+        None => tokio::select! {
+            _ = cancellation.cancelled() => return Err(canceled_error()),
+            result = remote_size() => result?,
+        },
+    };
+
+    if metadata.is_file() && expected_size == Some(metadata.len()) {
+        if target != part {
+            remove_file_if_exists(part).await?;
+        }
+        return Ok((target.to_owned(), part.to_owned(), true));
+    }
+
+    let (new_target, new_part) = reserve_unique_target_path(requested)
+        .await
+        .map_err(file_error)?;
+    if target != part && part != new_part {
+        if let Err(error) = migrate_part_file(part, &new_part).await {
+            let _ = tokio::fs::remove_file(&new_part).await;
+            return Err(error);
+        }
+    }
+    Ok((new_target, new_part, false))
+}
+
+async fn migrate_part_file(source: &Path, destination: &Path) -> AppResult<()> {
+    match tokio::fs::metadata(source).await {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(file_error(error)),
+    }
+    tokio::fs::copy(source, destination)
+        .await
+        .map_err(file_error)?;
+    if let Err(error) = tokio::fs::remove_file(source).await {
+        let _ = tokio::fs::remove_file(destination).await;
+        return Err(file_error(error));
+    }
+    Ok(())
+}
+
+async fn remove_file_if_exists(path: &Path) -> AppResult<()> {
     match tokio::fs::remove_file(path).await {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(file_error(error)),
     }
+}
+
+async fn remove_part_path(path: Option<&str>) -> AppResult<()> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+    remove_file_if_exists(Path::new(path)).await
 }
 
 fn stop_state(reason: StopReason) -> AppResult<JobState> {
@@ -1203,7 +1285,7 @@ async fn adjust_permits(
     mut desired: watch::Receiver<u8>,
     mut held: Vec<OwnedSemaphorePermit>,
 ) {
-    loop {
+    'adjust: loop {
         let target_held = (MAX_CONCURRENCY - *desired.borrow_and_update()) as usize;
         while held.len() > target_held {
             held.pop();
@@ -1214,7 +1296,7 @@ async fn adjust_permits(
                     if changed.is_err() {
                         return;
                     }
-                    break;
+                    continue 'adjust;
                 }
                 permit = semaphore.clone().acquire_owned() => {
                     match permit {
@@ -1321,6 +1403,98 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn persisted_complete_target_is_reused_without_a_numbered_copy() {
+        let directory = std::env::temp_dir().join(format!(
+            "khinfetch-persisted-complete-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        tokio::fs::create_dir_all(&directory)
+            .await
+            .expect("create recovery directory");
+        let target = directory.join("track.flac");
+        let part = directory.join("track.flac.part");
+        tokio::fs::write(&target, b"complete")
+            .await
+            .expect("write completed target");
+        tokio::fs::write(&part, b"stale")
+            .await
+            .expect("write stale part");
+
+        let (recovered_target, recovered_part, already_complete) = reconcile_persisted_paths(
+            &target,
+            &part,
+            &target,
+            Some(8),
+            &CancellationToken::new(),
+            || async { panic!("known size must not query the remote resource") },
+        )
+        .await
+        .expect("reconcile completed target");
+
+        assert_eq!(recovered_target, target);
+        assert_eq!(recovered_part, part);
+        assert!(already_complete);
+        assert!(!tokio::fs::try_exists(&part)
+            .await
+            .expect("check stale part"));
+        assert!(!tokio::fs::try_exists(directory.join("track (2).flac"))
+            .await
+            .expect("check numbered target"));
+        tokio::fs::remove_dir_all(directory)
+            .await
+            .expect("remove recovery directory");
+    }
+
+    #[tokio::test]
+    async fn persisted_mismatched_target_moves_the_part_to_a_new_reservation() {
+        let directory = std::env::temp_dir().join(format!(
+            "khinfetch-persisted-mismatch-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        tokio::fs::create_dir_all(&directory)
+            .await
+            .expect("create recovery directory");
+        let target = directory.join("track.flac");
+        let part = directory.join("track.flac.part");
+        tokio::fs::write(&target, b"wrong")
+            .await
+            .expect("write mismatched target");
+        tokio::fs::write(&part, b"resume")
+            .await
+            .expect("write resumable part");
+
+        let (recovered_target, recovered_part, already_complete) = reconcile_persisted_paths(
+            &target,
+            &part,
+            &target,
+            Some(8),
+            &CancellationToken::new(),
+            || async { panic!("known size must not query the remote resource") },
+        )
+        .await
+        .expect("reconcile mismatched target");
+
+        assert_ne!(recovered_target, target);
+        assert!(!already_complete);
+        assert_eq!(
+            tokio::fs::read(&target)
+                .await
+                .expect("read original target"),
+            b"wrong"
+        );
+        assert_eq!(
+            tokio::fs::read(&recovered_part)
+                .await
+                .expect("read migrated part"),
+            b"resume"
+        );
+        assert!(!tokio::fs::try_exists(&part).await.expect("check old part"));
+        tokio::fs::remove_dir_all(directory)
+            .await
+            .expect("remove recovery directory");
+    }
+
+    #[tokio::test]
     async fn different_urls_with_the_same_filename_use_different_gates() {
         let coordinator = ResourceCoordinator::default();
         let target = Path::new("track.mp3");
@@ -1388,5 +1562,51 @@ mod tests {
         tokio::fs::remove_dir_all(directory)
             .await
             .expect("remove test artwork directory");
+    }
+
+    #[tokio::test]
+    async fn concurrency_adjustment_reacts_while_waiting_for_permits() {
+        async fn wait_for_available(semaphore: &Semaphore, expected: usize) {
+            tokio::time::timeout(Duration::from_secs(1), async {
+                loop {
+                    tokio::task::yield_now().await;
+                    if semaphore.available_permits() == expected {
+                        return;
+                    }
+                }
+            })
+            .await
+            .expect("semaphore reaches expected availability");
+        }
+
+        let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENCY as usize));
+        let mut active = Vec::new();
+        for _ in 0..MAX_CONCURRENCY {
+            active.push(
+                semaphore
+                    .clone()
+                    .acquire_owned()
+                    .await
+                    .expect("acquire active permit"),
+            );
+        }
+        let (desired, receiver) = watch::channel(MAX_CONCURRENCY);
+        let adjuster = tokio::spawn(adjust_permits(semaphore.clone(), receiver, Vec::new()));
+
+        desired.send(1).expect("lower concurrency");
+        drop(active.pop());
+        wait_for_available(&semaphore, 0).await;
+        drop(active.pop());
+        wait_for_available(&semaphore, 0).await;
+
+        desired.send(MAX_CONCURRENCY).expect("restore concurrency");
+        wait_for_available(&semaphore, 2).await;
+
+        drop(active);
+        drop(desired);
+        tokio::time::timeout(Duration::from_secs(1), adjuster)
+            .await
+            .expect("adjuster stops")
+            .expect("adjuster succeeds");
     }
 }
