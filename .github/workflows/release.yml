@@ -245,10 +245,22 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh release download "${{ github.ref_name }}" \
-            --repo "${{ github.repository }}" \
-            --pattern latest.json \
-            --dir "$RUNNER_TEMP/updater"
+          mkdir -p "$RUNNER_TEMP/updater"
+          releases="$(gh api \
+            "repos/${{ github.repository }}/releases?per_page=100")"
+          asset_id="$(jq -r --arg tag "${{ github.ref_name }}" \
+            '.[] | select(.tag_name == $tag) | .assets[] | select(.name == "latest.json") | .id' \
+            <<<"$releases" | head -n 1)"
+
+          if [[ -z "$asset_id" || "$asset_id" == "null" ]]; then
+            echo "::error::Could not find latest.json in the draft release ${{ github.ref_name }}."
+            exit 1
+          fi
+
+          gh api \
+            --header "Accept: application/octet-stream" \
+            "repos/${{ github.repository }}/releases/assets/$asset_id" \
+            > "$RUNNER_TEMP/updater/latest.json"
 
           node - "$RUNNER_TEMP/updater/latest.json" "${{ needs.validate.outputs.version }}" <<'NODE'
           const fs = require("node:fs");
