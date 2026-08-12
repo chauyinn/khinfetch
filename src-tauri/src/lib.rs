@@ -9,9 +9,9 @@ use tauri::Manager;
 
 use commands::{
     cancel_job, choose_download_directory, enqueue_album, enqueue_urls, get_album_details,
-    get_settings, get_track_preview, list_jobs, open_download_directory, open_external_url,
-    open_log_directory, pause_job, remove_job, resume_job, retry_job, search_albums,
-    update_settings, AppState,
+    get_settings, get_track_preview, get_update_environment, list_jobs, open_download_directory,
+    open_external_url, open_log_directory, pause_job, remove_job, resume_job, retry_job,
+    search_albums, update_settings, AppState,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -19,6 +19,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -40,6 +42,7 @@ pub fn run() {
             get_track_preview,
             list_jobs,
             get_settings,
+            get_update_environment,
             update_settings,
             enqueue_album,
             enqueue_urls,

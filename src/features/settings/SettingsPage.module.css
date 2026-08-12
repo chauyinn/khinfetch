@@ -91,6 +91,29 @@
   background-color: var(--bg-surface-hover);
 }
 
+.button:disabled,
+.buttonPrimary:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.buttonPrimary {
+  background-color: var(--color-accent);
+  color: var(--text-inverse);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color var(--transition-fast);
+}
+
+.buttonPrimary:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+}
+
 /* Radix Switch Custom Styling */
 .switchRoot {
   width: 42px;
@@ -171,6 +194,13 @@
   gap: 8px;
 }
 
+.aboutTopRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
 .aboutIdentity {
   display: flex;
   align-items: center;
@@ -219,4 +249,104 @@
 
 .aboutInlineLink:hover {
   text-decoration: underline;
+}
+
+.updateControl {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.updateActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.updateStatus {
+  max-width: 420px;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+  text-align: right;
+}
+
+.updateError {
+  color: var(--color-danger);
+}
+
+.progressTrack {
+  width: min(280px, 100%);
+  height: 4px;
+  overflow: hidden;
+  background-color: var(--bg-surface-active);
+  border-radius: var(--radius-xs);
+}
+
+.progressValue {
+  display: block;
+  height: 100%;
+  background-color: var(--color-accent);
+  transition: width var(--transition-normal);
+}
+
+.progressIndeterminate {
+  width: 35%;
+  animation: update-progress 1.2s ease-in-out infinite alternate;
+}
+
+.updateNotes {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 12px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.updateNotes summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.updateNotesBody {
+  max-height: 160px;
+  margin-top: 10px;
+  overflow: auto;
+  line-height: 1.6;
+  user-select: text;
+  white-space: pre-wrap;
+}
+
+.spinner {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes update-progress {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(285%); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 960px) {
+  .aboutTopRow {
+    flex-direction: column;
+  }
+
+  .updateControl {
+    width: 100%;
+    align-items: flex-start;
+  }
+
+  .updateStatus {
+    max-width: 100%;
+    text-align: left;
+  }
 }

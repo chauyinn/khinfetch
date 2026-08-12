@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from "react";
 import {
+  Download,
+  ExternalLink,
   FileText,
   Folder,
   FolderOpen,
   HardDrive,
   Info,
   Languages,
+  Loader2,
+  RefreshCw,
   Sliders,
   SunMoon,
 } from "lucide-react";
@@ -20,6 +24,8 @@ import { backendClient } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import { rememberLanguagePreference, resolveLanguagePreference, useAppStore } from "../../stores/useAppStore";
 import { useToastStore } from "../../stores/useToastStore";
+import { useJobsStore } from "../../stores/useJobsStore";
+import { useUpdateStore } from "../../stores/useUpdateStore";
 import { Switch } from "../../components/ui/Switch";
 import { useStrings } from "../../i18n/useStrings";
 import logo from "../../assets/logo.png";
@@ -35,11 +41,31 @@ export const SettingsPage: React.FC = () => {
     setSettings: setAppSettings,
   } = useAppStore();
   const { showToast } = useToastStore();
+  const activeDownloadsCount = useJobsStore((state) => state.activeDownloadsCount);
+  const {
+    status: updateStatus,
+    update,
+    downloadedBytes,
+    totalBytes,
+    error: updateError,
+    checkForUpdate,
+    downloadUpdate,
+    installUpdate,
+    openReleasePage,
+  } = useUpdateStore();
   const strings = useStrings();
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const settings = appSettings;
+  const isUpdateRunning =
+    updateStatus === "checking" ||
+    updateStatus === "downloading" ||
+    updateStatus === "installing";
+  const isUpdateCheckDisabled = isUpdateRunning || updateStatus === "downloaded";
+  const downloadPercent = totalBytes && totalBytes > 0
+    ? Math.min(100, Math.round((downloadedBytes / totalBytes) * 100))
+    : null;
 
   useEffect(() => {
     let active = true;
@@ -147,6 +173,48 @@ export const SettingsPage: React.FC = () => {
       showToast(strings.toast.openExternalError(errorMessage(error, strings.errors.unknown)), "error");
     }
   };
+
+  const handleOpenReleasePage = async () => {
+    try {
+      await openReleasePage();
+    } catch (error) {
+      showToast(strings.toast.openExternalError(errorMessage(error, strings.errors.unknown)), "error");
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    const installed = await installUpdate();
+    if (!installed && useJobsStore.getState().activeDownloadsCount > 0) {
+      showToast(strings.toast.updateBlockedByDownloads, "warning");
+    }
+  };
+
+  const updateStatusText = (() => {
+    if (updateStatus === "checking") return strings.about.updateChecking;
+    if (updateStatus === "current") return strings.about.updateCurrent;
+    if (updateStatus === "available" && updateError) {
+      return strings.about.updateError(errorMessage(updateError, strings.errors.unknown));
+    }
+    if (updateStatus === "downloading") {
+      return downloadPercent === null
+        ? strings.about.updateDownloading
+        : strings.about.updateDownloadingProgress(downloadPercent);
+    }
+    if (updateStatus === "downloaded") {
+      if (updateError) {
+        return strings.about.updateError(errorMessage(updateError, strings.errors.unknown));
+      }
+      return activeDownloadsCount > 0
+        ? strings.about.updateWaitingForDownloads(activeDownloadsCount)
+        : strings.about.updateReady;
+    }
+    if (updateStatus === "installing") return strings.about.updateInstalling;
+    if (updateStatus === "error") {
+      return strings.about.updateError(errorMessage(updateError, strings.errors.unknown));
+    }
+    if (update) return strings.about.updateAvailable(update.version);
+    return null;
+  })();
 
   if (!settings) {
     return <div className={styles.container}>{loadError ?? strings.settings.loading}</div>;
@@ -390,13 +458,77 @@ export const SettingsPage: React.FC = () => {
         </div>
 
         <div className={styles.aboutHeader}>
-          <div className={styles.aboutIdentity}>
-            <img className={styles.aboutLogo} src={logo} alt="" aria-hidden="true" />
-            <div className={styles.aboutTitleLine}>
-              <span className={styles.aboutName}>{strings.about.title}</span>
-              {appVersion && <span className={styles.version}>{`v${appVersion}`}</span>}
+          <div className={styles.aboutTopRow}>
+            <div className={styles.aboutIdentity}>
+              <img className={styles.aboutLogo} src={logo} alt="" aria-hidden="true" />
+              <div className={styles.aboutTitleLine}>
+                <span className={styles.aboutName}>{strings.about.title}</span>
+                {appVersion && <span className={styles.version}>{`v${appVersion}`}</span>}
+              </div>
+            </div>
+
+            <div className={styles.updateControl}>
+              <div className={styles.updateActions}>
+                {update && update.environment.installStrategy === "external" && (
+                  <button type="button" className={styles.button} onClick={handleOpenReleasePage}>
+                    <ExternalLink size={14} />
+                    <span>{strings.about.btnOpenRelease}</span>
+                  </button>
+                )}
+                {update && update.environment.installStrategy === "integrated" && updateStatus === "available" && (
+                  <button type="button" className={styles.buttonPrimary} onClick={() => void downloadUpdate()}>
+                    <Download size={14} />
+                    <span>{strings.about.btnDownloadUpdate}</span>
+                  </button>
+                )}
+                {update && update.environment.installStrategy === "integrated" && updateStatus === "downloaded" && (
+                  <button
+                    type="button"
+                    className={styles.buttonPrimary}
+                    disabled={activeDownloadsCount > 0}
+                    onClick={() => void handleInstallUpdate()}
+                  >
+                    <RefreshCw size={14} />
+                    <span>{strings.about.btnInstallUpdate}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={styles.button}
+                  disabled={isUpdateCheckDisabled}
+                  onClick={() => void checkForUpdate()}
+                >
+                  {isUpdateRunning ? <Loader2 size={14} className={styles.spinner} /> : <RefreshCw size={14} />}
+                  <span>{strings.about.btnCheckUpdate}</span>
+                </button>
+              </div>
+
+              {updateStatusText && (
+                <span
+                  className={`${styles.updateStatus} ${updateError ? styles.updateError : ""}`}
+                  aria-live="polite"
+                >
+                  {updateStatusText}
+                </span>
+              )}
+              {updateStatus === "downloading" && (
+                <div
+                  className={styles.progressTrack}
+                  role="progressbar"
+                  aria-label={strings.about.updateDownloadProgress}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={downloadPercent ?? undefined}
+                >
+                  <span
+                    className={`${styles.progressValue} ${downloadPercent === null ? styles.progressIndeterminate : ""}`}
+                    style={downloadPercent === null ? undefined : { width: `${downloadPercent}%` }}
+                  />
+                </div>
+              )}
             </div>
           </div>
+
           <p className={styles.aboutDesc}>
             {strings.about.descBeforeOfficial}{" "}
             <button
@@ -417,6 +549,13 @@ export const SettingsPage: React.FC = () => {
             {strings.about.descAfterReference}
           </p>
         </div>
+
+        {update?.body && (
+          <details className={styles.updateNotes}>
+            <summary>{strings.about.updateNotes}</summary>
+            <div className={styles.updateNotesBody}>{update.body}</div>
+          </details>
+        )}
 
       </div>
     </div>

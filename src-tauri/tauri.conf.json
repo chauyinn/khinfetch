@@ -28,6 +28,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -35,5 +36,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJFNEMzMUM4NUY5ODA5QkQKUldTOUNaaGZ5REZNdnJRWjEzUWVNVllxZTE5bm9wY0NpV1pzRzdSME82OWFjZHc3bFppMkFhVTIK",
+      "endpoints": [
+        "https://github.com/chauyinn/khinfetch/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

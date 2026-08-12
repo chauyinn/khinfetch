@@ -18,4 +18,6 @@ export type { ThemePreference } from "./ThemePreference";
 export type { TrackProgressEvent } from "./TrackProgressEvent";
 export type { TrackPreview } from "./TrackPreview";
 export type { TrackSummary } from "./TrackSummary";
+export type { UpdateEnvironment } from "./UpdateEnvironment";
+export type { UpdateInstallStrategy } from "./UpdateInstallStrategy";
 export type { VariantSummary } from "./VariantSummary";

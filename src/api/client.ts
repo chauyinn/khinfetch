@@ -1,6 +1,12 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { relaunch } from "@tauri-apps/plugin-process";
+import {
+  check as checkForTauriUpdate,
+  type DownloadEvent,
+  type Update,
+} from "@tauri-apps/plugin-updater";
 
 import type {
   AlbumDetails,
@@ -14,7 +20,21 @@ import type {
   EnqueueAlbumRequest,
   TrackProgressEvent,
   TrackPreview,
+  UpdateEnvironment,
 } from "./generated";
+
+export interface AppUpdateInfo {
+  currentVersion: string;
+  version: string;
+  date: string | null;
+  body: string | null;
+  environment: UpdateEnvironment;
+}
+
+export interface UpdateDownloadProgress {
+  downloadedBytes: number;
+  totalBytes: number | null;
+}
 
 export interface BackendClient {
   searchAlbums(query: string): Promise<AlbumSummary[]>;
@@ -30,6 +50,9 @@ export interface BackendClient {
   removeJob(jobId: string): Promise<void>;
   getSettings(): Promise<AppSettings>;
   getAppVersion(): Promise<string>;
+  checkForUpdate(): Promise<AppUpdateInfo | null>;
+  downloadUpdate(onProgress: (progress: UpdateDownloadProgress) => void): Promise<void>;
+  installUpdate(): Promise<void>;
   updateSettings(patch: AppSettingsPatch): Promise<AppSettings>;
   chooseDownloadDirectory(): Promise<string | null>;
   openDownloadDirectory(): Promise<void>;
@@ -41,6 +64,8 @@ export interface BackendClient {
 }
 
 class TauriBackendClient implements BackendClient {
+  private pendingUpdate: Update | null = null;
+
   searchAlbums(query: string) {
     return invoke<AlbumSummary[]>("search_albums", { query });
   }
@@ -69,6 +94,59 @@ class TauriBackendClient implements BackendClient {
   removeJob(jobId: string) { return invoke<void>("remove_job", { jobId }); }
   getSettings() { return invoke<AppSettings>("get_settings"); }
   getAppVersion() { return getVersion(); }
+  async checkForUpdate(): Promise<AppUpdateInfo | null> {
+    await this.pendingUpdate?.close();
+    this.pendingUpdate = null;
+
+    const environment = await invoke<UpdateEnvironment>("get_update_environment");
+    const update = await checkForTauriUpdate({ timeout: 30_000 });
+    if (!update) return null;
+
+    const info: AppUpdateInfo = {
+      currentVersion: update.currentVersion,
+      version: update.version,
+      date: update.date ?? null,
+      body: update.body ?? null,
+      environment,
+    };
+
+    if (environment.installStrategy === "integrated") {
+      this.pendingUpdate = update;
+    } else {
+      await update.close();
+    }
+
+    return info;
+  }
+  async downloadUpdate(onProgress: (progress: UpdateDownloadProgress) => void) {
+    if (!this.pendingUpdate) {
+      throw new Error("No integrated update is ready to download");
+    }
+
+    let downloadedBytes = 0;
+    let totalBytes: number | null = null;
+    const handleEvent = (event: DownloadEvent) => {
+      if (event.event === "Started") {
+        totalBytes = event.data.contentLength ?? null;
+        onProgress({ downloadedBytes, totalBytes });
+      } else if (event.event === "Progress") {
+        downloadedBytes += event.data.chunkLength;
+        onProgress({ downloadedBytes, totalBytes });
+      } else {
+        onProgress({ downloadedBytes: totalBytes ?? downloadedBytes, totalBytes });
+      }
+    };
+
+    await this.pendingUpdate.download(handleEvent, { timeout: 10 * 60_000 });
+  }
+  async installUpdate() {
+    if (!this.pendingUpdate) {
+      throw new Error("No downloaded update is ready to install");
+    }
+    await this.pendingUpdate.install();
+    this.pendingUpdate = null;
+    await relaunch();
+  }
   updateSettings(patch: AppSettingsPatch) { return invoke<AppSettings>("update_settings", { patch }); }
   chooseDownloadDirectory() { return invoke<string | null>("choose_download_directory"); }
   openDownloadDirectory() { return invoke<void>("open_download_directory"); }

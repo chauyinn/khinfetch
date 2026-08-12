@@ -11,7 +11,8 @@ use uuid::Uuid;
 use crate::domain::{
     AlbumDetails, AlbumJob, AlbumSummary, AppError, AppResult, AppSettings, AppSettingsPatch,
     BackendNotice, BatchEnqueueRequest, BatchEnqueueResult, EnqueueAlbumRequest, EnqueueFailure,
-    ErrorCode, JobState, QualityPreference, TrackPreview, TrackSummary,
+    ErrorCode, JobState, QualityPreference, TrackPreview, TrackSummary, UpdateEnvironment,
+    UpdateInstallStrategy,
 };
 use crate::downloads::{
     manager::DownloadManager,
@@ -22,9 +23,14 @@ use crate::khinsider::{validate_source_url, KhinsiderClient};
 use crate::logging::{redact, LoggingHandle};
 use crate::storage::{timestamp, ArtworkJobRecord, Storage, TrackJobRecord};
 
-const ALLOWED_EXTERNAL_URLS: [&str; 2] = [
+const RELEASE_URL: &str = "https://github.com/chauyinn/khinfetch/releases/latest";
+#[cfg(target_os = "windows")]
+const PORTABLE_MARKER_FILE: &str = "khinfetch-portable.txt";
+
+const ALLOWED_EXTERNAL_URLS: [&str; 3] = [
     "https://downloads.khinsider.com",
     "https://github.com/weespin/KhinsiderDownloader",
+    RELEASE_URL,
 ];
 
 pub struct AppState {
@@ -104,6 +110,14 @@ pub async fn list_jobs(state: State<'_, AppState>) -> AppResult<Vec<AlbumJob>> {
 #[tauri::command]
 pub async fn get_settings(app: AppHandle, state: State<'_, AppState>) -> AppResult<AppSettings> {
     effective_settings(&app, state.inner()).await
+}
+
+#[tauri::command]
+pub fn get_update_environment() -> UpdateEnvironment {
+    UpdateEnvironment {
+        install_strategy: update_install_strategy(),
+        release_url: RELEASE_URL.to_owned(),
+    }
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -285,6 +299,41 @@ fn validate_external_url(url: &str) -> AppResult<String> {
     validate_source_url(url)
         .map(|source| source.url.to_string())
         .map_err(|_| AppError::invalid_url("不允许打开此外部链接"))
+}
+
+#[cfg(target_os = "windows")]
+fn update_install_strategy() -> UpdateInstallStrategy {
+    let is_portable = std::env::current_exe()
+        .ok()
+        .and_then(|path| {
+            path.parent()
+                .map(|parent| parent.join(PORTABLE_MARKER_FILE))
+        })
+        .is_some_and(|marker| marker.is_file());
+    if is_portable {
+        UpdateInstallStrategy::External
+    } else {
+        UpdateInstallStrategy::Integrated
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn update_install_strategy() -> UpdateInstallStrategy {
+    if std::env::var_os("APPIMAGE").is_some() {
+        UpdateInstallStrategy::Integrated
+    } else {
+        UpdateInstallStrategy::External
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn update_install_strategy() -> UpdateInstallStrategy {
+    UpdateInstallStrategy::Integrated
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+fn update_install_strategy() -> UpdateInstallStrategy {
+    UpdateInstallStrategy::External
 }
 
 fn normalize_directory(path: PathBuf) -> AppResult<PathBuf> {
@@ -521,7 +570,7 @@ fn file_error(error: std::io::Error) -> AppError {
 
 #[cfg(test)]
 mod tests {
-    use super::{formats_for_tracks, validate_external_url};
+    use super::{formats_for_tracks, validate_external_url, RELEASE_URL};
     use crate::domain::{QualityPreference, TrackSummary, VariantSummary};
 
     fn track_with_formats(formats: &[&str]) -> TrackSummary {
@@ -563,6 +612,7 @@ mod tests {
     fn external_urls_are_restricted_to_declared_project_links() {
         assert!(validate_external_url("https://downloads.khinsider.com").is_ok());
         assert!(validate_external_url("https://github.com/weespin/KhinsiderDownloader").is_ok());
+        assert!(validate_external_url(RELEASE_URL).is_ok());
         assert!(validate_external_url(
             "https://downloads.khinsider.com/game-soundtracks/album/example"
         )

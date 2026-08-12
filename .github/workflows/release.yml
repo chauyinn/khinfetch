@@ -193,6 +193,8 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: KhinFetch v${{ needs.validate.outputs.version }}
@@ -205,6 +207,7 @@ jobs:
           prerelease: false
           generateReleaseNotes: true
           retryAttempts: 2
+          updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
 
       - name: Create and upload Windows portable archive
@@ -225,6 +228,48 @@ jobs:
           New-Item -ItemType Directory -Path $staging -Force | Out-Null
           Copy-Item -LiteralPath $source -Destination (Join-Path $staging "KhinFetch.exe")
           Copy-Item -LiteralPath "LICENSE" -Destination (Join-Path $staging "LICENSE")
+          Set-Content -LiteralPath (Join-Path $staging "khinfetch-portable.txt") -Value "KhinFetch portable distribution marker."
           Compress-Archive -Path (Join-Path $staging "*") -DestinationPath $archive -Force
 
           gh release upload "${{ github.ref_name }}" $archive --clobber
+
+  verify-updater:
+    name: Verify updater metadata
+    needs: [validate, bundle]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Verify latest.json platform coverage
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --pattern latest.json \
+            --dir "$RUNNER_TEMP/updater"
+
+          node - "$RUNNER_TEMP/updater/latest.json" "${{ needs.validate.outputs.version }}" <<'NODE'
+          const fs = require("node:fs");
+          const [path, expectedVersion] = process.argv.slice(2);
+          const metadata = JSON.parse(fs.readFileSync(path, "utf8"));
+          const required = [
+            "linux-x86_64",
+            "windows-x86_64",
+            "darwin-aarch64",
+            "darwin-x86_64",
+          ];
+
+          if (metadata.version !== expectedVersion) {
+            throw new Error(`latest.json version ${metadata.version} does not match ${expectedVersion}`);
+          }
+
+          for (const platform of required) {
+            const entry = metadata.platforms?.[platform];
+            if (!entry?.url || !entry?.signature) {
+              throw new Error(`latest.json is missing a complete ${platform} entry`);
+            }
+            new URL(entry.url);
+          }
+          NODE

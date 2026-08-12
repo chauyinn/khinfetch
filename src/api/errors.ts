@@ -1,4 +1,7 @@
 export function errorMessage(error: unknown, fallback: string): string {
+  if (typeof error === "string" && error.trim()) {
+    return error;
+  }
   if (
     typeof error === "object" &&
     error !== null &&
