@@ -238,7 +238,8 @@ jobs:
     needs: [validate, bundle]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # Draft releases are only visible to tokens with push access.
+      contents: write
     steps:
       - name: Verify latest.json platform coverage
         env:
