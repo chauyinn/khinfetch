@@ -385,6 +385,8 @@
   font-size: var(--font-size-md);
   font-weight: 700;
   line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .updateStateDescription {
@@ -392,6 +394,8 @@
   color: var(--text-secondary);
   font-size: var(--font-size-xs);
   line-height: 1.55;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .progressTrack,

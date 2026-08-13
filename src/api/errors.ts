@@ -13,3 +13,17 @@ export function errorMessage(error: unknown, fallback: string): string {
   }
   return fallback;
 }
+
+export function isTransientNetworkError(error: unknown): boolean {
+  const message = errorMessage(error, "").toLowerCase();
+  return [
+    "error sending request",
+    "failed to connect",
+    "connection refused",
+    "connection reset",
+    "connection closed",
+    "dns error",
+    "timed out",
+    "timeout",
+  ].some((fragment) => message.includes(fragment));
+}

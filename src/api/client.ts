@@ -22,6 +22,14 @@ import type {
   TrackPreview,
   UpdateEnvironment,
 } from "./generated";
+import { isTransientNetworkError } from "./errors";
+
+const UPDATE_CHECK_TIMEOUT_MS = 15_000;
+const UPDATE_CHECK_RETRY_DELAYS_MS = [1_000, 3_000] as const;
+
+function wait(delayMs: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
+}
 
 export interface AppUpdateInfo {
   currentVersion: string;
@@ -99,7 +107,19 @@ class TauriBackendClient implements BackendClient {
     this.pendingUpdate = null;
 
     const environment = await invoke<UpdateEnvironment>("get_update_environment");
-    const update = await checkForTauriUpdate({ timeout: 30_000 });
+    let update: Update | null = null;
+    for (let attempt = 0; attempt <= UPDATE_CHECK_RETRY_DELAYS_MS.length; attempt += 1) {
+      try {
+        update = await checkForTauriUpdate({ timeout: UPDATE_CHECK_TIMEOUT_MS });
+        break;
+      } catch (error) {
+        const retryDelay = UPDATE_CHECK_RETRY_DELAYS_MS[attempt];
+        if (retryDelay === undefined || !isTransientNetworkError(error)) {
+          throw error;
+        }
+        await wait(retryDelay);
+      }
+    }
     if (!update) return null;
 
     const info: AppUpdateInfo = {

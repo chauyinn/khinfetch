@@ -25,7 +25,7 @@ import type {
   ThemePreference,
 } from "../../api/generated";
 import { backendClient } from "../../api/client";
-import { errorMessage } from "../../api/errors";
+import { errorMessage, isTransientNetworkError } from "../../api/errors";
 import { rememberLanguagePreference, resolveLanguagePreference, useAppStore } from "../../stores/useAppStore";
 import { useToastStore } from "../../stores/useToastStore";
 import { useJobsStore } from "../../stores/useJobsStore";
@@ -204,7 +204,8 @@ export const SettingsPage: React.FC = () => {
     const message = errorMessage(updateError, strings.errors.unknown);
     if (
       updateStatus === "error" &&
-      message.includes("Could not fetch a valid release JSON from the remote")
+      (isTransientNetworkError(updateError) ||
+        message.includes("Could not fetch a valid release JSON from the remote"))
     ) {
       return strings.about.updateCheckUnavailable;
     }

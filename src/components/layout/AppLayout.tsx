@@ -9,7 +9,6 @@ import { errorMessage } from "../../api/errors";
 import { getStrings } from "../../i18n/catalog";
 import { useStrings } from "../../i18n/useStrings";
 import { useToastStore } from "../../stores/useToastStore";
-import { useUpdateStore } from "../../stores/useUpdateStore";
 import logo from "../../assets/logo.png";
 import styles from "./AppLayout.module.css";
 
@@ -21,7 +20,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const { activeTab, setActiveTab, setSettings, setThemeSetting, setLanguageSetting } = useAppStore();
   const { activeDownloadsCount, initialize } = useJobsStore();
   const { showToast } = useToastStore();
-  const checkForUpdate = useUpdateStore((state) => state.checkForUpdate);
   const strings = useStrings();
 
   useEffect(() => {
@@ -43,10 +41,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       cleanupPromise.then((cleanup) => cleanup && cleanup());
     };
   }, [initialize]);
-
-  useEffect(() => {
-    void checkForUpdate(true);
-  }, [checkForUpdate]);
 
   useEffect(() => {
     let active = true;
