@@ -25,6 +25,10 @@ interface UpdateState {
 }
 
 let automaticCheckStarted = false;
+let activeCheck: {
+  promise: Promise<AppUpdateInfo | null>;
+  showError: boolean;
+} | null = null;
 
 export const useUpdateStore = create<UpdateState>((set, get) => ({
   status: "idle",
@@ -39,14 +43,33 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       automaticCheckStarted = true;
     }
 
+    let check = activeCheck;
+    if (!check) {
+      check = {
+        promise: backendClient.checkForUpdate(),
+        showError: !silent,
+      };
+      activeCheck = check;
+    } else if (!silent) {
+      check.showError = true;
+    }
+
     set({ status: "checking", update: null, error: null, downloadedBytes: 0, totalBytes: null });
     try {
-      const update = await backendClient.checkForUpdate();
-      set({ status: update ? "available" : "current", update });
+      const update = await check.promise;
+      if (activeCheck === check) {
+        set({ status: update ? "available" : "current", update });
+      }
       return update;
     } catch (error) {
-      set(silent ? { status: "idle", error: null } : { status: "error", error });
+      if (activeCheck === check) {
+        set(check.showError ? { status: "error", error } : { status: "idle", error: null });
+      }
       return null;
+    } finally {
+      if (activeCheck === check) {
+        activeCheck = null;
+      }
     }
   },
 

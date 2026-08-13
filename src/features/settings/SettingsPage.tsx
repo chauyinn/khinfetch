@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import {
+  AlertCircle,
+  CheckCircle2,
   Download,
   ExternalLink,
   FileText,
@@ -12,6 +15,7 @@ import {
   RefreshCw,
   Sliders,
   SunMoon,
+  X,
 } from "lucide-react";
 import type {
   AppSettings,
@@ -57,6 +61,7 @@ export const SettingsPage: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
   const settings = appSettings;
   const isUpdateRunning =
     updateStatus === "checking" ||
@@ -189,12 +194,36 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
+  const handleCheckForUpdate = () => {
+    setIsUpdateDialogOpen(true);
+    void checkForUpdate();
+  };
+
+  const updateErrorText = (() => {
+    if (!updateError) return null;
+    const message = errorMessage(updateError, strings.errors.unknown);
+    if (
+      updateStatus === "error" &&
+      message.includes("Could not fetch a valid release JSON from the remote")
+    ) {
+      return strings.about.updateCheckUnavailable;
+    }
+    return strings.about.updateError(message);
+  })();
+
+  const updateDate = (() => {
+    if (!update?.date) return null;
+    const date = new Date(update.date);
+    if (Number.isNaN(date.getTime())) return null;
+    return new Intl.DateTimeFormat(languageSetting === "zh-cn" ? "zh-CN" : "en", {
+      dateStyle: "medium",
+    }).format(date);
+  })();
+
   const updateStatusText = (() => {
     if (updateStatus === "checking") return strings.about.updateChecking;
     if (updateStatus === "current") return strings.about.updateCurrent;
-    if (updateStatus === "available" && updateError) {
-      return strings.about.updateError(errorMessage(updateError, strings.errors.unknown));
-    }
+    if (updateStatus === "available" && updateError) return updateErrorText;
     if (updateStatus === "downloading") {
       return downloadPercent === null
         ? strings.about.updateDownloading
@@ -202,7 +231,7 @@ export const SettingsPage: React.FC = () => {
     }
     if (updateStatus === "downloaded") {
       if (updateError) {
-        return strings.about.updateError(errorMessage(updateError, strings.errors.unknown));
+        return updateErrorText;
       }
       return activeDownloadsCount > 0
         ? strings.about.updateWaitingForDownloads(activeDownloadsCount)
@@ -210,7 +239,7 @@ export const SettingsPage: React.FC = () => {
     }
     if (updateStatus === "installing") return strings.about.updateInstalling;
     if (updateStatus === "error") {
-      return strings.about.updateError(errorMessage(updateError, strings.errors.unknown));
+      return updateErrorText;
     }
     if (update) return strings.about.updateAvailable(update.version);
     return null;
@@ -467,65 +496,16 @@ export const SettingsPage: React.FC = () => {
               </div>
             </div>
 
-            <div className={styles.updateControl}>
-              <div className={styles.updateActions}>
-                {update && update.environment.installStrategy === "external" && (
-                  <button type="button" className={styles.button} onClick={handleOpenReleasePage}>
-                    <ExternalLink size={14} />
-                    <span>{strings.about.btnOpenRelease}</span>
-                  </button>
-                )}
-                {update && update.environment.installStrategy === "integrated" && updateStatus === "available" && (
-                  <button type="button" className={styles.buttonPrimary} onClick={() => void downloadUpdate()}>
-                    <Download size={14} />
-                    <span>{strings.about.btnDownloadUpdate}</span>
-                  </button>
-                )}
-                {update && update.environment.installStrategy === "integrated" && updateStatus === "downloaded" && (
-                  <button
-                    type="button"
-                    className={styles.buttonPrimary}
-                    disabled={activeDownloadsCount > 0}
-                    onClick={() => void handleInstallUpdate()}
-                  >
-                    <RefreshCw size={14} />
-                    <span>{strings.about.btnInstallUpdate}</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className={styles.button}
-                  disabled={isUpdateCheckDisabled}
-                  onClick={() => void checkForUpdate()}
-                >
-                  {isUpdateRunning ? <Loader2 size={14} className={styles.spinner} /> : <RefreshCw size={14} />}
-                  <span>{strings.about.btnCheckUpdate}</span>
-                </button>
-              </div>
-
-              {updateStatusText && (
-                <span
-                  className={`${styles.updateStatus} ${updateError ? styles.updateError : ""}`}
-                  aria-live="polite"
-                >
-                  {updateStatusText}
-                </span>
-              )}
-              {updateStatus === "downloading" && (
-                <div
-                  className={styles.progressTrack}
-                  role="progressbar"
-                  aria-label={strings.about.updateDownloadProgress}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={downloadPercent ?? undefined}
-                >
-                  <span
-                    className={`${styles.progressValue} ${downloadPercent === null ? styles.progressIndeterminate : ""}`}
-                    style={downloadPercent === null ? undefined : { width: `${downloadPercent}%` }}
-                  />
-                </div>
-              )}
+            <div className={styles.updateToolbar}>
+              <button
+                type="button"
+                className={styles.button}
+                disabled={isUpdateCheckDisabled}
+                onClick={handleCheckForUpdate}
+              >
+                {isUpdateRunning ? <Loader2 size={14} className={styles.spinner} /> : <RefreshCw size={14} />}
+                <span>{strings.about.btnCheckUpdate}</span>
+              </button>
             </div>
           </div>
 
@@ -550,14 +530,167 @@ export const SettingsPage: React.FC = () => {
           </p>
         </div>
 
-        {update?.body && (
-          <details className={styles.updateNotes}>
-            <summary>{strings.about.updateNotes}</summary>
-            <div className={styles.updateNotesBody}>{update.body}</div>
-          </details>
-        )}
-
       </div>
+
+      <Dialog.Root open={isUpdateDialogOpen} onOpenChange={setIsUpdateDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className={styles.updateDialogOverlay} />
+          <Dialog.Content
+            className={`${styles.updateDialogContent} ${update ? styles.updateDialogContentDetailed : ""}`}
+          >
+            <header className={styles.updateDialogHeader}>
+              <div>
+                <Dialog.Title className={styles.updateDialogTitle}>
+                  {strings.about.updateDialogTitle}
+                </Dialog.Title>
+                <Dialog.Description className={styles.srOnly}>
+                  {strings.about.updateDialogDescription}
+                </Dialog.Description>
+              </div>
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className={styles.updateDialogClose}
+                  aria-label={strings.about.btnCloseUpdate}
+                >
+                  <X size={18} />
+                </button>
+              </Dialog.Close>
+            </header>
+
+            <div className={styles.updateDialogBody} aria-live="polite">
+              <div
+                className={`${styles.updateStateIcon} ${
+                  updateStatus === "error" || updateError
+                    ? styles.updateStateIconError
+                    : updateStatus === "current" || updateStatus === "downloaded"
+                      ? styles.updateStateIconSuccess
+                      : styles.updateStateIconInfo
+                }`}
+              >
+                {updateStatus === "checking" ||
+                updateStatus === "downloading" ||
+                updateStatus === "installing" ? (
+                  <Loader2 size={24} className={styles.spinner} />
+                ) : updateStatus === "error" || updateError ? (
+                  <AlertCircle size={24} />
+                ) : updateStatus === "current" || updateStatus === "downloaded" ? (
+                  <CheckCircle2 size={24} />
+                ) : (
+                  <Download size={24} />
+                )}
+              </div>
+
+              <div className={styles.updateStateCopy}>
+                <h3 className={styles.updateStateTitle}>
+                  {updateStatusText ?? strings.about.updateChecking}
+                </h3>
+                <p className={styles.updateStateDescription}>
+                  {updateStatus === "current"
+                    ? strings.about.updateCurrentDescription(appVersion ?? "")
+                    : updateStatus === "error"
+                      ? strings.about.updateRetryDescription
+                      : updateStatus === "checking"
+                        ? strings.about.updateCheckingDescription
+                        : updateStatus === "available"
+                          ? strings.about.updateAvailableDescription
+                          : updateStatus === "downloaded"
+                            ? strings.about.updateReadyDescription
+                            : strings.about.updateProgressDescription}
+                </p>
+              </div>
+
+              {updateStatus === "downloading" && (
+                <div
+                  className={styles.progressTrack}
+                  role="progressbar"
+                  aria-label={strings.about.updateDownloadProgress}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={downloadPercent ?? undefined}
+                >
+                  <span
+                    className={`${styles.progressValue} ${downloadPercent === null ? styles.progressIndeterminate : ""}`}
+                    style={downloadPercent === null ? undefined : { width: `${downloadPercent}%` }}
+                  />
+                </div>
+              )}
+
+              {update?.body && (
+                <section className={styles.updateNotes}>
+                  <div className={styles.updateNotesHeader}>
+                    <h4>{strings.about.updateNotes}</h4>
+                    <div className={styles.updateNotesMeta}>
+                      <span>{`v${update.version}`}</span>
+                      {updateDate && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span>{updateDate}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className={styles.updateNotesBody}>{update.body}</div>
+                </section>
+              )}
+            </div>
+
+            <footer className={styles.updateDialogFooter}>
+              <Dialog.Close asChild>
+                <button type="button" className={styles.button}>
+                  {strings.about.btnCloseUpdate}
+                </button>
+              </Dialog.Close>
+
+              {updateStatus === "error" && (
+                <button
+                  type="button"
+                  className={styles.buttonPrimary}
+                  onClick={() => void checkForUpdate()}
+                >
+                  <RefreshCw size={14} />
+                  <span>{strings.about.btnRetryUpdate}</span>
+                </button>
+              )}
+              {update && update.environment.installStrategy === "external" && (
+                <button
+                  type="button"
+                  className={styles.buttonPrimary}
+                  onClick={handleOpenReleasePage}
+                >
+                  <ExternalLink size={14} />
+                  <span>{strings.about.btnOpenRelease}</span>
+                </button>
+              )}
+              {update &&
+                update.environment.installStrategy === "integrated" &&
+                updateStatus === "available" && (
+                <button
+                  type="button"
+                  className={styles.buttonPrimary}
+                  onClick={() => void downloadUpdate()}
+                >
+                  <Download size={14} />
+                  <span>{strings.about.btnDownloadUpdate}</span>
+                </button>
+              )}
+              {update &&
+                update.environment.installStrategy === "integrated" &&
+                updateStatus === "downloaded" && (
+                <button
+                  type="button"
+                  className={styles.buttonPrimary}
+                  disabled={activeDownloadsCount > 0}
+                  onClick={() => void handleInstallUpdate()}
+                >
+                  <RefreshCw size={14} />
+                  <span>{strings.about.btnInstallUpdate}</span>
+                </button>
+              )}
+            </footer>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 };
