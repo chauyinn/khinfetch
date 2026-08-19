@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./src/assets/logo.png" width="96" height="96" alt="KhinFetch 标志" />
+  <img src="./src/assets/logo.png" width="108" height="108" alt="KhinFetch 标志" />
 </p>
 
 <h1 align="center">KhinFetch</h1>
@@ -9,31 +9,38 @@
 </p>
 
 <p align="center">
-  <a href="./README.md">English</a>
-  ·
-  <a href="./LICENSE">GPL-3.0-or-later</a>
+  <a href="https://github.com/chauyinn/khinfetch/releases"><img src="https://img.shields.io/github/v/release/chauyinn/khinfetch?color=2563eb&label=Release&logo=github&style=flat-square" alt="最新发布" /></a>
+  <a href="https://github.com/chauyinn/khinfetch/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/chauyinn/khinfetch/ci.yml?branch=main&label=CI&logo=githubactions&logoColor=white&style=flat-square" alt="CI 构建状态" /></a>
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-475569?style=flat-square" alt="支持平台" />
+  <a href="https://github.com/chauyinn/khinfetch/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0--or--later-blue?style=flat-square" alt="开源许可证" /></a>
 </p>
 
+<p align="center">
+  <a href="./README.md">English</a>
+  ·
+  <a href="./README.zh-CN.md">简体中文</a>
+</p>
+
+---
+
 > [!NOTE]
-> 本项目和 README 由 AI 辅助生成
+> 本项目由 AI 辅助生成。
 
 > [!IMPORTANT]
-> KhinFetch 是独立开发的非官方客户端，与 Khinsider 不存在从属、授权、认可或维护关系。本项目不会授予用户对音乐、封面、元数据或其他第三方内容的任何权利。用户有责任确保其使用和下载行为合法，并遵守相关网站条款。
+> **免责声明**：KhinFetch 是独立开发的非官方客户端，与 Khinsider 不存在从属、授权、认可或维护关系。本项目不会授予用户对音乐、封面、元数据或其他第三方内容的任何权利。用户有责任确保其使用和下载行为合法，并遵守相关网站条款。
 
-## 功能
+## ✨ 功能特性
 
-- 搜索 Khinsider 专辑，或直接打开专辑及播放列表链接。
-- 下载前查看专辑元数据、曲目时长、可用格式及文件大小。
-- 在线试听可用的 MP3 音频。
-- 为每首曲目选择最高可用音质，无损格式不可用时自动回退并明确显示混合音质，也可仅下载 MP3。
-- 批量添加多个专辑和播放列表链接。
-- 可选择在音频文件旁保存专辑原始封面。
-- 暂停、恢复、重试、取消并查看持久化的专辑、曲目和封面下载任务。
-- 通过 SQLite 下载队列恢复意外中断的任务及进度。
-- 配置并发数、下载音质、封面、文件验证、日志、主题和界面语言。
-- 支持简体中文和英文界面；首次启动跟随系统语言，主题可跟随系统或手动选择。
+- **🔍 智能搜索与链接解析**：支持按关键词搜索 Khinsider 专辑，或直接粘贴专辑与播放列表链接进行解析。
+- **📊 完整元数据预览**：下载前直观查看专辑年份、编号、曲目列表、时长、格式及文件大小。
+- **🎧 在线即时试听**：下载前支持直接在线播放 MP3 试听片段。
+- **🎵 最高音质优先**：智能为每首曲目匹配最高可用音质（无损 FLAC / 高音质 MP3），格式缺失时自动回退并清晰标示混合音质。
+- **📦 批量链接导入**：支持一次性粘贴多个专辑和播放列表链接加入队列。
+- **🖼️ 专辑封面保存**：可选择在下载音频的同时，将原画质专辑封面保存至同级目录。
+- **⚡ 持久化下载管理**：基于 SQLite 构建下载任务队列，支持暂停、恢复、重试、取消，意外中断后随时断点恢复。
+- **⚙️ 丰富个性化配置**：自由设置并发下载数、音质偏好、文件完整性校验、日志级别、中英双语及深浅色主题。
 
-## 界面截图
+## 📸 界面预览
 
 ### 搜索
 
@@ -43,32 +50,45 @@
 
 ![KhinFetch 下载队列](./docs/images/downloads.png)
 
-## 项目状态
+## 🚀 获取与运行
 
-KhinFetch 仍在积极开发中。源码构建面向 Windows、macOS 和 Linux，CI 会在三个平台上进行编译验证，GitHub Releases 提供预构建安装包，除非具体版本另有说明，这些安装包目前不含代码签名。
+KhinFetch 源码构建面向 **Windows**、**macOS** 和 **Linux** 平台。最新预构建包可在 [GitHub Releases](https://github.com/chauyinn/khinfetch/releases) 下载：
 
-Windows 版本还会提供 portable ZIP 压缩包，解压后直接运行 `KhinFetch.exe` 即可，无需安装。免安装版仍会将设置、数据库和日志写入当前用户的应用数据目录。
+- **Windows**：提供安装包与免安装便携版（Portable ZIP，解压即用）。
+- **macOS / Linux**：提供对应系统格式分发包。
 
-## 开发
+> [!TIP]
+> 便携版仍会将设置、数据库和日志安全存储在当前用户的系统应用数据目录中。
+
+## 🛠️ 本地开发
 
 ### 环境要求
 
-- Node.js 26.x
-- pnpm 11.20.x
-- Rust 1.97 或更高版本
+- **Node.js**：`26.x`
+- **pnpm**：`11.20.x`
+- **Rust**：`1.97` 或更高版本
+- 目标系统平台所需的 [Tauri 2 依赖环境](https://v2.tauri.app/start/prerequisites/)
 
-### 本地运行
+### 快速开始
 
 ```bash
+# 安装前端依赖
 pnpm install
+
+# 启动本地开发环境
 pnpm tauri dev
 ```
 
-### 验证改动
+### 代码检查与测试验证
+
+在提交代码或创建 Pull Request 前，请确保运行并通过以下验证命令：
 
 ```bash
+# 前端 Lint 与构建检查
 pnpm lint
 pnpm build
+
+# Rust 代码格式化、Clippy 检查与单元测试
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml --locked
@@ -80,38 +100,38 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 pnpm tauri build
 ```
 
-在宿主平台支持的情况下，未签名的本地安装包会输出到 `src-tauri/target/release/bundle/`。
+构建生成的本地安装包将输出至 `src-tauri/target/release/bundle/` 目录。
 
-## 项目结构
+## 📁 项目结构
 
-- `src/`：React 与 TypeScript 前端
-- `src/api/client.ts`：前端调用 Tauri 后端的统一边界
-- `src/api/generated/`：与 Rust DTO 对应的 TypeScript 类型
-- `src/i18n/`：简体中文和英文界面文案
-- `src/assets/`：前端及文档资源
-- `docs/images/`：README 使用的界面截图
-- `src-tauri/src/`：Rust 命令、下载、解析、存储、日志和文件系统逻辑
-- `src-tauri/migrations/`：SQLite 迁移
-- `src-tauri/icons/`：Tauri 各平台安装包图标
-- `.github/workflows/`：持续集成与版本发布自动化
+```text
+khinfetch/
+├── src/                    # React 19 + TypeScript 前端
+│   ├── api/client.ts       # 前端调用 Tauri 后端的统一通信边界
+│   ├── api/generated/      # 与 Rust DTO 对应的 TypeScript 类型定义
+│   ├── assets/             # 前端图标与静态资源
+│   └── i18n/               # 简体中文与英文界面文本
+├── src-tauri/              # Rust Tauri 2 后端核心
+│   ├── src/                # 下载器、解析引擎、SQLite 存储及系统逻辑
+│   ├── migrations/         # SQLite 数据库迁移文件
+│   └── icons/              # 各平台打包图标
+├── docs/images/            # 文档截图资源
+└── .github/workflows/      # CI 编译测试与自动化发布工作流
+```
 
-修改 `src-tauri/src/domain/` 中的公共 Rust DTO 时，必须在同一次改动中同步更新 `src/api/generated/` 下对应的 TypeScript 类型。
+## 🤝 参与贡献
 
-## 参与贡献
+欢迎提交 Issue 和 Pull Request，在提交 Pull Request 前运行上述验证命令。
 
-欢迎提交 Issue 和 Pull Request。请保持改动聚焦，保留项目的非官方客户端定位，并在提交 Pull Request 前运行上述验证命令。
-
-## 致谢
+## 💖 致谢
 
 - [Khinsider](https://downloads.khinsider.com/) 提供本应用所读取的网站数据。
 - 项目实现参考了开源项目 [KhinsiderDownloader](https://github.com/weespin/KhinsiderDownloader)。
 
-## 许可证
+## 📄 许可证
 
 版权所有 (C) 2026 KhinFetch contributors。
 
-除非文件中另有说明，本仓库内 KhinFetch 的原创源代码及项目自有资产均依据 **GNU 通用公共许可证第 3 版或任何后续版本**（`GPL-3.0-or-later`）授权。你可以按照该许可证使用、研究、修改和再分发 KhinFetch。分发修改版本或二进制文件时，必须遵守 GPL，包括适用的对应源代码提供义务。
-
-KhinFetch 按“原样”提供，**不附带任何保证**，包括但不限于适销性或特定用途适用性的默示保证。完整许可证文本见 [LICENSE](./LICENSE)。
+除非文件中另有说明，本仓库内 KhinFetch 的原创源代码及项目自有资产均依据 **GNU 通用公共许可证第 3 版或任何后续版本**（`GPL-3.0-or-later`）授权。详情请参阅 [LICENSE](./LICENSE)。
 
 第三方依赖以及从外部服务取得的内容仍分别受其自身许可证、著作权和条款约束。KhinFetch 的开源许可证不会对这些第三方内容重新授权，也不会授予用户相关内容权利。
