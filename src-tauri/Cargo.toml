@@ -1,6 +1,6 @@
 [package]
 name = "khinfetch"
-version = "0.1.2"
+version = "0.1.3"
 description = "A reliable cross-platform Khinsider download manager"
 authors = ["KhinFetch contributors"]
 license = "GPL-3.0-or-later"

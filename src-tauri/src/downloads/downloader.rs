@@ -2,7 +2,7 @@ use std::{path::Path, sync::Arc, time::Duration};
 
 use futures_util::StreamExt;
 use reqwest::{
-    header::{CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, RANGE, RETRY_AFTER},
+    header::{CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, RANGE, REFERER, RETRY_AFTER},
     redirect::Policy,
     Client, StatusCode,
 };
@@ -12,7 +12,7 @@ use url::Url;
 
 use crate::{
     domain::{AppError, AppResult, ErrorCode},
-    khinsider::{validate_artwork_url, validate_media_url},
+    khinsider::{validate_artwork_url, validate_media_url, DEFAULT_USER_AGENT},
 };
 
 const MAX_ATTEMPTS: u32 = 4;
@@ -210,7 +210,11 @@ impl DownloadClient {
 
     async fn remote_size_for(&self, url: &Url, kind: DownloadKind) -> AppResult<Option<u64>> {
         self.validate_url(url, kind)?;
-        let response = self.client(kind).head(url.clone()).send().await;
+        let mut request = self.client(kind).head(url.clone());
+        if kind == DownloadKind::Artwork {
+            request = request.header(REFERER, "https://downloads.khinsider.com/");
+        }
+        let response = request.send().await;
         let Ok(response) = response else {
             return Ok(None);
         };
@@ -235,6 +239,9 @@ impl DownloadClient {
         };
 
         let mut request = self.client(kind).get(url.clone());
+        if kind == DownloadKind::Artwork {
+            request = request.header(REFERER, "https://downloads.khinsider.com/");
+        }
         if existing > 0 {
             request = request.header(RANGE, format!("bytes={existing}-"));
         }
@@ -371,9 +378,9 @@ impl DownloadClient {
     }
 }
 
-fn build_client(version: &str, kind: DownloadKind) -> AppResult<Client> {
+fn build_client(_version: &str, kind: DownloadKind) -> AppResult<Client> {
     Client::builder()
-        .user_agent(format!("khinfetch/{version}"))
+        .user_agent(DEFAULT_USER_AGENT)
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(120))
         .redirect(Policy::custom(move |attempt| {
