@@ -88,6 +88,9 @@ pnpm tauri dev
 pnpm lint
 pnpm build
 
+# 前端状态管理回归测试
+pnpm test
+
 # Rust 代码格式化、Clippy 检查与单元测试
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings

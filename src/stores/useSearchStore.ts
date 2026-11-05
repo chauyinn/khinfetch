@@ -59,6 +59,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       selectedSourceUrl: null,
       selectedAlbumDetails: null,
       selectedTrackIds: [],
+      isLoadingDetails: false,
       detailsError: null,
       searchSequence: seq,
       detailsSequence: get().detailsSequence + 1,

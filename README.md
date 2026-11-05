@@ -88,6 +88,9 @@ Please run and pass all validation checks before submitting a pull request:
 pnpm lint
 pnpm build
 
+# Frontend state management regression tests
+pnpm test
+
 # Rust formatting, Clippy checks, and unit tests
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings

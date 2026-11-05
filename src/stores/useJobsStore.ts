@@ -26,17 +26,21 @@ interface JobsState {
   removeAllJobs: () => Promise<void>;
 }
 
-let jobsEventRevision = 0;
-
 const isActiveJob = (job: AlbumJob) =>
   job.state === "downloading" || job.state === "resolving" || job.state === "waiting" || job.state === "queued";
 
 const activeDownloadsCount = (jobs: AlbumJob[]) => jobs.filter(isActiveJob).length;
 
-const mergeJobsBySequence = (snapshot: AlbumJob[], liveJobs: AlbumJob[]) => {
+const mergeJobsBySequence = (
+  snapshot: AlbumJob[],
+  liveJobs: AlbumJob[],
+  eventRevisions: Map<string, number>,
+  snapshotRevision: number,
+) => {
   const snapshotIds = new Set(snapshot.map((job) => job.id));
   const liveById = new Map(liveJobs.map((job) => [job.id, job]));
-  const liveOnly = liveJobs.filter((job) => !snapshotIds.has(job.id));
+  const liveOnly = liveJobs.filter((job) =>
+    !snapshotIds.has(job.id) && (eventRevisions.get(job.id) ?? 0) > snapshotRevision);
   return [
     ...liveOnly,
     ...snapshot.map((job) => {
@@ -51,173 +55,185 @@ const showActionError = (error: unknown) => {
   useToastStore.getState().showToast(errorMessage(error, strings.errors.unknown), "error");
 };
 
-export const useJobsStore = create<JobsState>((set, get) => ({
-  jobs: [],
-  isLoading: false,
-  error: null,
-  activeDownloadsCount: 0,
+export const useJobsStore = create<JobsState>((set, get) => {
+  let jobsEventRevision = 0;
+  let snapshotSequence = 0;
+  const eventRevisions = new Map<string, number>();
+  // Job IDs are unique: successful deletions must also reject delayed events.
+  const removedJobIds = new Set<string>();
 
-  initialize: async () => {
-    set({ isLoading: true });
+  const forgetJob = (jobId: string) => {
+    removedJobIds.add(jobId);
+    eventRevisions.delete(jobId);
+    set((state) => {
+      const jobs = state.jobs.filter((job) => job.id !== jobId);
+      return { jobs, activeDownloadsCount: activeDownloadsCount(jobs) };
+    });
+  };
 
-    // Register listeners first before listJobs() to prevent race conditions
-    const unlistenJobUpdated = await backendClient.onJobUpdated((updatedJob) => {
-      jobsEventRevision += 1;
+  const loadJobs = async (fallback: string) => {
+    const requestSequence = ++snapshotSequence;
+    const snapshotRevision = jobsEventRevision;
+    try {
+      const snapshot = await backendClient.listJobs();
+      if (requestSequence !== snapshotSequence) return;
       set((state) => {
-        const existingIndex = state.jobs.findIndex((j) => j.id === updatedJob.id);
-        let updatedList: AlbumJob[];
+        const jobs = mergeJobsBySequence(
+          snapshot.filter((job) => !removedJobIds.has(job.id)),
+          state.jobs,
+          eventRevisions,
+          snapshotRevision,
+        );
+        return { jobs, activeDownloadsCount: activeDownloadsCount(jobs), isLoading: false, error: null };
+      });
+    } catch (error) {
+      if (requestSequence !== snapshotSequence) return;
+      set({ isLoading: false, error: errorMessage(error, fallback) });
+    }
+  };
 
-        if (existingIndex >= 0) {
-          const existing = state.jobs[existingIndex];
-          // Ignore stale sequence events
-          if (updatedJob.sequence <= existing.sequence) {
-            return state;
+  return {
+    jobs: [],
+    isLoading: false,
+    error: null,
+    activeDownloadsCount: 0,
+
+    initialize: async () => {
+      set({ isLoading: true });
+
+      // Register listeners first before listJobs() to prevent race conditions
+      const unlistenJobUpdated = await backendClient.onJobUpdated((updatedJob) => {
+        if (removedJobIds.has(updatedJob.id)) return;
+        set((state) => {
+          const existingIndex = state.jobs.findIndex((j) => j.id === updatedJob.id);
+          let updatedList: AlbumJob[];
+
+          if (existingIndex >= 0) {
+            const existing = state.jobs[existingIndex];
+            // Ignore stale sequence events
+            if (updatedJob.sequence <= existing.sequence) {
+              return state;
+            }
+            updatedList = [...state.jobs];
+            updatedList[existingIndex] = updatedJob;
+          } else {
+            updatedList = [updatedJob, ...state.jobs];
           }
-          updatedList = [...state.jobs];
-          updatedList[existingIndex] = updatedJob;
-        } else {
-          updatedList = [updatedJob, ...state.jobs];
-        }
 
-        return { jobs: updatedList, activeDownloadsCount: activeDownloadsCount(updatedList) };
+          eventRevisions.set(updatedJob.id, ++jobsEventRevision);
+          return { jobs: updatedList, activeDownloadsCount: activeDownloadsCount(updatedList) };
+        });
       });
-    });
 
-    const unlistenNotice = await backendClient.onNotice((notice: BackendNotice) => {
-      useToastStore.getState().showToast(notice.message, "warning");
-    });
-
-    // Load authoritative list from SQLite / backend
-    try {
-      const snapshotRevision = jobsEventRevision;
-      const initialJobs = await backendClient.listJobs();
-      set((state) => {
-        const jobs = jobsEventRevision === snapshotRevision
-          ? initialJobs
-          : mergeJobsBySequence(initialJobs, state.jobs);
-        return {
-          jobs,
-          activeDownloadsCount: activeDownloadsCount(jobs),
-          isLoading: false,
-          error: null,
-        };
+      const unlistenNotice = await backendClient.onNotice((notice: BackendNotice) => {
+        useToastStore.getState().showToast(notice.message, "warning");
       });
-    } catch (error) {
+
+      // Load authoritative list from SQLite / backend
       const strings = getStrings(useAppStore.getState().languageSetting);
-      set({ isLoading: false, error: errorMessage(error, strings.errors.jobsLoadFallback) });
-    }
+      await loadJobs(strings.errors.jobsLoadFallback);
 
-    return () => {
-      unlistenJobUpdated();
-      unlistenNotice();
-    };
-  },
+      return () => {
+        unlistenJobUpdated();
+        unlistenNotice();
+      };
+    },
 
-  refreshJobs: async () => {
-    try {
-      const snapshotRevision = jobsEventRevision;
-      const jobs = await backendClient.listJobs();
-      set((state) => {
-        const merged = jobsEventRevision === snapshotRevision
-          ? jobs
-          : mergeJobsBySequence(jobs, state.jobs);
-        return { jobs: merged, activeDownloadsCount: activeDownloadsCount(merged), error: null };
-      });
-    } catch (error) {
+    refreshJobs: async () => {
       const strings = getStrings(useAppStore.getState().languageSetting);
-      set({ error: errorMessage(error, strings.errors.jobsRefreshFallback) });
-    }
-  },
+      await loadJobs(strings.errors.jobsRefreshFallback);
+    },
 
-  pauseJob: async (jobId: string) => {
-    try {
-      await backendClient.pauseJob(jobId);
+    pauseJob: async (jobId: string) => {
+      try {
+        await backendClient.pauseJob(jobId);
+        await get().refreshJobs();
+      } catch (error) {
+        showActionError(error);
+      }
+    },
+
+    resumeJob: async (jobId: string) => {
+      try {
+        await backendClient.resumeJob(jobId);
+        await get().refreshJobs();
+      } catch (error) {
+        showActionError(error);
+      }
+    },
+
+    cancelJob: async (jobId: string) => {
+      try {
+        await backendClient.cancelJob(jobId);
+        await get().refreshJobs();
+      } catch (error) {
+        showActionError(error);
+      }
+    },
+
+    retryJob: async (jobId: string) => {
+      try {
+        await backendClient.retryJob(jobId);
+        await get().refreshJobs();
+      } catch (error) {
+        showActionError(error);
+      }
+    },
+
+    removeJob: async (jobId: string) => {
+      try {
+        await backendClient.removeJob(jobId);
+        forgetJob(jobId);
+      } catch (error) {
+        showActionError(error);
+      }
+    },
+
+    pauseAllJobs: async () => {
+      const activeJobs = get().jobs.filter(isActiveJob);
+      const results = await Promise.allSettled(activeJobs.map((j) => backendClient.pauseJob(j.id)));
+      const rejected = results.filter((r) => r.status === "rejected");
+      if (rejected.length > 0) {
+        const strings = getStrings(useAppStore.getState().languageSetting);
+        useToastStore.getState().showToast(strings.toast.pauseAllError(rejected.length), "error");
+      }
       await get().refreshJobs();
-    } catch (error) {
-      showActionError(error);
-    }
-  },
+    },
 
-  resumeJob: async (jobId: string) => {
-    try {
-      await backendClient.resumeJob(jobId);
+    resumeAllJobs: async () => {
+      const pausedJobs = get().jobs.filter((j) => j.state === "paused" || j.state === "interrupted");
+      const results = await Promise.allSettled(pausedJobs.map((j) => backendClient.resumeJob(j.id)));
+      const rejected = results.filter((r) => r.status === "rejected");
+      if (rejected.length > 0) {
+        const strings = getStrings(useAppStore.getState().languageSetting);
+        useToastStore.getState().showToast(strings.toast.resumeAllError(rejected.length), "error");
+      }
       await get().refreshJobs();
-    } catch (error) {
-      showActionError(error);
-    }
-  },
+    },
 
-  cancelJob: async (jobId: string) => {
-    try {
-      await backendClient.cancelJob(jobId);
+    removeAllJobs: async () => {
+      const initialJobs = get().jobs;
+      if (initialJobs.length === 0) return;
+
+      const targetIds = new Set(initialJobs.map((job) => job.id));
+      const activeJobs = initialJobs.filter(isActiveJob);
+      await Promise.allSettled(activeJobs.map((job) => backendClient.cancelJob(job.id)));
       await get().refreshJobs();
-    } catch (error) {
-      showActionError(error);
-    }
-  },
 
-  retryJob: async (jobId: string) => {
-    try {
-      await backendClient.retryJob(jobId);
+      const removableJobs = get().jobs.filter((job) => targetIds.has(job.id) && !isActiveJob(job));
+      await Promise.allSettled(removableJobs.map(async (job) => {
+        await backendClient.removeJob(job.id);
+        forgetJob(job.id);
+      }));
       await get().refreshJobs();
-    } catch (error) {
-      showActionError(error);
-    }
-  },
 
-  removeJob: async (jobId: string) => {
-    try {
-      await backendClient.removeJob(jobId);
-      set((state) => {
-        const jobs = state.jobs.filter((job) => job.id !== jobId);
-        return { jobs, activeDownloadsCount: activeDownloadsCount(jobs) };
-      });
-    } catch (error) {
-      showActionError(error);
-    }
-  },
-
-  pauseAllJobs: async () => {
-    const activeJobs = get().jobs.filter(isActiveJob);
-    const results = await Promise.allSettled(activeJobs.map((j) => backendClient.pauseJob(j.id)));
-    const rejected = results.filter((r) => r.status === "rejected");
-    if (rejected.length > 0) {
+      const remaining = get().jobs.filter((job) => targetIds.has(job.id)).length;
       const strings = getStrings(useAppStore.getState().languageSetting);
-      useToastStore.getState().showToast(strings.toast.pauseAllError(rejected.length), "error");
-    }
-    await get().refreshJobs();
-  },
-
-  resumeAllJobs: async () => {
-    const pausedJobs = get().jobs.filter((j) => j.state === "paused" || j.state === "interrupted");
-    const results = await Promise.allSettled(pausedJobs.map((j) => backendClient.resumeJob(j.id)));
-    const rejected = results.filter((r) => r.status === "rejected");
-    if (rejected.length > 0) {
-      const strings = getStrings(useAppStore.getState().languageSetting);
-      useToastStore.getState().showToast(strings.toast.resumeAllError(rejected.length), "error");
-    }
-    await get().refreshJobs();
-  },
-
-  removeAllJobs: async () => {
-    const initialJobs = get().jobs;
-    if (initialJobs.length === 0) return;
-
-    const targetIds = new Set(initialJobs.map((job) => job.id));
-    const activeJobs = initialJobs.filter(isActiveJob);
-    await Promise.allSettled(activeJobs.map((job) => backendClient.cancelJob(job.id)));
-    await get().refreshJobs();
-
-    const removableJobs = get().jobs.filter((job) => targetIds.has(job.id) && !isActiveJob(job));
-    await Promise.allSettled(removableJobs.map((job) => backendClient.removeJob(job.id)));
-    await get().refreshJobs();
-
-    const remaining = get().jobs.filter((job) => targetIds.has(job.id)).length;
-    const strings = getStrings(useAppStore.getState().languageSetting);
-    if (remaining > 0) {
-      useToastStore.getState().showToast(strings.toast.clearQueueError(remaining), "error");
-    } else {
-      useToastStore.getState().showToast(strings.toast.clearQueueSuccess(initialJobs.length), "success");
-    }
-  },
-}));
+      if (remaining > 0) {
+        useToastStore.getState().showToast(strings.toast.clearQueueError(remaining), "error");
+      } else {
+        useToastStore.getState().showToast(strings.toast.clearQueueSuccess(initialJobs.length), "success");
+      }
+    },
+  };
+});

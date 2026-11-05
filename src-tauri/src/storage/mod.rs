@@ -1,4 +1,4 @@
-use std::{path::Path, str::FromStr};
+use std::{fs::File, path::Path, str::FromStr, sync::Arc};
 
 use chrono::{SecondsFormat, Utc};
 use serde::{de::DeserializeOwned, Serialize};
@@ -18,6 +18,8 @@ const MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 #[derive(Clone)]
 pub struct Storage {
     pool: SqlitePool,
+    // Retain ownership until the last storage handle (including download workers) is dropped.
+    _owner_lock: Option<Arc<File>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,6 +60,23 @@ pub struct ArtworkJobRecord {
 impl Storage {
     pub async fn open(path: &Path) -> AppResult<Self> {
         let in_memory = path.to_string_lossy() == ":memory:";
+        let owner_lock = if in_memory {
+            None
+        } else {
+            // Protect recovery even when two processes race through application startup.
+            let mut lock_path = path.as_os_str().to_os_string();
+            lock_path.push(".lock");
+            let lock = File::options()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(Path::new(&lock_path))
+                .map_err(|error| storage_error(format!("无法打开数据库所有权锁: {error}")))?;
+            lock.try_lock()
+                .map_err(|error| storage_error(format!("无法独占打开应用数据库: {error}")))?;
+            Some(Arc::new(lock))
+        };
         let options = if in_memory {
             SqliteConnectOptions::from_str("sqlite::memory:")
                 .map_err(|error| storage_error(format!("无法配置内存数据库: {error}")))?
@@ -118,7 +137,10 @@ impl Storage {
             .await
             .map_err(|error| storage_error(format!("提交启动恢复事务失败: {error}")))?;
 
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            _owner_lock: owner_lock,
+        })
     }
 
     pub async fn open_memory() -> AppResult<Self> {
@@ -168,50 +190,36 @@ impl Storage {
         .await
         .map_err(|error| storage_error(format!("读取设置失败: {error}")))?;
 
-        let concurrency = row_i64(&row, "concurrency")?;
-        let concurrency =
-            u8::try_from(concurrency).map_err(|_| storage_error("数据库中的并发数无效"))?;
-        if !(1..=8).contains(&concurrency) {
-            return Err(storage_error("数据库中的并发数超出范围"));
-        }
-
-        Ok(AppSettings {
-            download_directory: row
-                .try_get("download_directory")
-                .map_err(sqlx_error_to_app)?,
-            concurrency,
-            preferred_quality: parse_token(row_string(&row, "preferred_quality")?)?,
-            download_artwork: row_i64(&row, "download_artwork")? != 0,
-            skip_verified_files: row_i64(&row, "skip_verified_files")? != 0,
-            logging_enabled: true,
-            theme: parse_token(row_string(&row, "theme")?)?,
-            language: parse_token(row_string(&row, "language")?)?,
-        })
+        row_to_settings(row)
     }
 
     pub async fn update_settings(&self, patch: &AppSettingsPatch) -> AppResult<AppSettings> {
-        let current = self.get_settings().await?;
-        let next = apply_patch(current, patch)?;
-        sqlx::query(
+        validate_settings_patch(patch)?;
+        // Apply only supplied fields and return this write's snapshot atomically.
+        let row = sqlx::query(
             "UPDATE app_settings
-             SET download_directory = ?, concurrency = ?, preferred_quality = ?,
-                 download_artwork = ?, skip_verified_files = ?, logging_enabled = ?,
-                 theme = ?, language = ?, updated_at = ?
-             WHERE id = 1",
+             SET download_directory = COALESCE(?, download_directory),
+                 concurrency = COALESCE(?, concurrency),
+                 preferred_quality = COALESCE(?, preferred_quality),
+                 download_artwork = COALESCE(?, download_artwork),
+                 skip_verified_files = COALESCE(?, skip_verified_files), logging_enabled = 1,
+                 theme = COALESCE(?, theme), language = COALESCE(?, language), updated_at = ?
+             WHERE id = 1
+             RETURNING download_directory, concurrency, preferred_quality, download_artwork,
+                       skip_verified_files, logging_enabled, theme, language",
         )
-        .bind(&next.download_directory)
-        .bind(i64::from(next.concurrency))
-        .bind(token(&next.preferred_quality)?)
-        .bind(next.download_artwork)
-        .bind(next.skip_verified_files)
-        .bind(next.logging_enabled)
-        .bind(token(&next.theme)?)
-        .bind(token(&next.language)?)
+        .bind(patch.download_directory.as_deref().map(str::trim))
+        .bind(patch.concurrency.map(i64::from))
+        .bind(patch.preferred_quality.as_ref().map(token).transpose()?)
+        .bind(patch.download_artwork)
+        .bind(patch.skip_verified_files)
+        .bind(patch.theme.as_ref().map(token).transpose()?)
+        .bind(patch.language.as_ref().map(token).transpose()?)
         .bind(timestamp())
-        .execute(&self.pool)
+        .fetch_one(&self.pool)
         .await
         .map_err(|error| storage_error(format!("保存设置失败: {error}")))?;
-        Ok(next)
+        row_to_settings(row)
     }
 
     pub async fn insert_job(&self, job: &AlbumJob) -> AppResult<()> {
@@ -698,7 +706,7 @@ impl Storage {
     }
 }
 
-fn apply_patch(mut current: AppSettings, patch: &AppSettingsPatch) -> AppResult<AppSettings> {
+fn validate_settings_patch(patch: &AppSettingsPatch) -> AppResult<()> {
     if let Some(value) = &patch.download_directory {
         let value = value.trim();
         if value.is_empty() || value.contains('\0') || !Path::new(value).is_absolute() {
@@ -708,31 +716,35 @@ fn apply_patch(mut current: AppSettings, patch: &AppSettingsPatch) -> AppResult<
                 false,
             ));
         }
-        current.download_directory = value.to_owned();
     }
     if let Some(value) = patch.concurrency {
         if !(1..=8).contains(&value) {
             return Err(AppError::invalid_url("并发数必须在 1 到 8 之间"));
         }
-        current.concurrency = value;
     }
-    if let Some(value) = patch.preferred_quality {
-        current.preferred_quality = value;
+    Ok(())
+}
+
+fn row_to_settings(row: sqlx::sqlite::SqliteRow) -> AppResult<AppSettings> {
+    let concurrency = row_i64(&row, "concurrency")?;
+    let concurrency =
+        u8::try_from(concurrency).map_err(|_| storage_error("数据库中的并发数无效"))?;
+    if !(1..=8).contains(&concurrency) {
+        return Err(storage_error("数据库中的并发数超出范围"));
     }
-    if let Some(value) = patch.download_artwork {
-        current.download_artwork = value;
-    }
-    if let Some(value) = patch.skip_verified_files {
-        current.skip_verified_files = value;
-    }
-    current.logging_enabled = true;
-    if let Some(value) = patch.theme {
-        current.theme = value;
-    }
-    if let Some(value) = patch.language {
-        current.language = value;
-    }
-    Ok(current)
+
+    Ok(AppSettings {
+        download_directory: row
+            .try_get("download_directory")
+            .map_err(sqlx_error_to_app)?,
+        concurrency,
+        preferred_quality: parse_token(row_string(&row, "preferred_quality")?)?,
+        download_artwork: row_i64(&row, "download_artwork")? != 0,
+        skip_verified_files: row_i64(&row, "skip_verified_files")? != 0,
+        logging_enabled: true,
+        theme: parse_token(row_string(&row, "theme")?)?,
+        language: parse_token(row_string(&row, "language")?)?,
+    })
 }
 
 fn row_to_job(row: sqlx::sqlite::SqliteRow) -> AppResult<AlbumJob> {
@@ -930,7 +942,8 @@ fn storage_error(message: impl Into<String>) -> AppError {
 #[cfg(test)]
 mod tests {
     use crate::domain::{
-        AlbumJob, AlbumSummary, JobState, QualityPreference, SourceKind, TrackSummary,
+        AlbumJob, AlbumSummary, AppSettingsPatch, JobState, LanguagePreference, QualityPreference,
+        SourceKind, ThemePreference, TrackSummary,
     };
 
     use super::{Storage, TrackJobRecord};
@@ -1002,6 +1015,178 @@ mod tests {
             .expect("apply database migrations");
 
         assert!(storage.list_jobs().await.expect("list jobs").is_empty());
+    }
+
+    #[tokio::test]
+    async fn second_storage_owner_cannot_recover_an_active_database() {
+        let directory =
+            std::env::temp_dir().join(format!("khinfetch-owner-test-{}", uuid::Uuid::new_v4()));
+        tokio::fs::create_dir_all(&directory).await.unwrap();
+        let database_path = directory.join("owner.sqlite3");
+        let first = Storage::open(&database_path).await.expect("first owner");
+        first
+            .insert_job(&example_job(JobState::Downloading))
+            .await
+            .unwrap();
+        first
+            .insert_track_job(&example_track(JobState::Downloading))
+            .await
+            .unwrap();
+
+        assert!(Storage::open(&database_path).await.is_err());
+        assert_eq!(
+            first.get_job("job").await.unwrap().unwrap().state,
+            JobState::Downloading
+        );
+        assert_eq!(first.get_job("job").await.unwrap().unwrap().sequence, 1);
+        assert_eq!(
+            first.list_track_jobs("job").await.unwrap()[0].state,
+            JobState::Downloading
+        );
+
+        let worker = first.clone();
+        drop(first);
+        assert!(Storage::open(&database_path).await.is_err());
+        worker.pool.close().await;
+        drop(worker);
+
+        // The sidecar can remain on disk: OS ownership ends when the last handle closes.
+        let restarted = Storage::open(&database_path)
+            .await
+            .expect("restart after owner exits");
+        assert_eq!(
+            restarted.get_job("job").await.unwrap().unwrap().state,
+            JobState::Interrupted
+        );
+        assert_eq!(
+            restarted.list_track_jobs("job").await.unwrap()[0].state,
+            JobState::Interrupted
+        );
+        restarted.pool.close().await;
+        drop(restarted);
+        tokio::fs::remove_dir_all(&directory).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn concurrent_settings_patches_preserve_independent_fields() {
+        let storage = Storage::open_memory().await.expect("open database");
+        let concurrency = AppSettingsPatch {
+            concurrency: Some(8),
+            ..Default::default()
+        };
+        let artwork = AppSettingsPatch {
+            download_artwork: Some(true),
+            ..Default::default()
+        };
+        let appearance = AppSettingsPatch {
+            theme: Some(ThemePreference::Dark),
+            language: Some(LanguagePreference::En),
+            ..Default::default()
+        };
+
+        let (a, b, c) = tokio::join!(
+            storage.update_settings(&concurrency),
+            storage.update_settings(&artwork),
+            storage.update_settings(&appearance),
+        );
+        assert_eq!(a.expect("save concurrency").concurrency, 8);
+        assert!(b.expect("save artwork preference").download_artwork);
+        assert_eq!(c.expect("save appearance").theme, ThemePreference::Dark);
+
+        let settings = storage.get_settings().await.expect("read settings");
+        assert_eq!(settings.concurrency, 8);
+        assert!(settings.download_artwork);
+        assert_eq!(settings.theme, ThemePreference::Dark);
+        assert_eq!(settings.language, LanguagePreference::En);
+    }
+
+    #[tokio::test]
+    async fn concurrent_settings_writes_return_their_own_snapshot() {
+        let storage = Storage::open_memory().await.expect("open database");
+        let first = AppSettingsPatch {
+            concurrency: Some(5),
+            ..Default::default()
+        };
+        let second = AppSettingsPatch {
+            concurrency: Some(8),
+            ..Default::default()
+        };
+        let (a, b) = tokio::join!(
+            storage.update_settings(&first),
+            storage.update_settings(&second)
+        );
+        assert_eq!(a.expect("save first patch").concurrency, 5);
+        assert_eq!(b.expect("save second patch").concurrency, 8);
+    }
+
+    #[tokio::test]
+    async fn settings_patch_preserves_omitted_fields_and_accepts_false() {
+        let storage = Storage::open_memory().await.expect("open database");
+        let directory = std::env::temp_dir().join("khinfetch-settings");
+        let original = storage
+            .update_settings(&AppSettingsPatch {
+                download_directory: Some(format!("  {}  ", directory.display())),
+                concurrency: Some(7),
+                preferred_quality: Some(QualityPreference::Mp3),
+                download_artwork: Some(true),
+                theme: Some(ThemePreference::Dark),
+                language: Some(LanguagePreference::En),
+                ..Default::default()
+            })
+            .await
+            .expect("save initial settings");
+        assert_eq!(original.download_directory, directory.to_string_lossy());
+        let updated = storage
+            .update_settings(&AppSettingsPatch {
+                download_artwork: Some(false),
+                skip_verified_files: Some(false),
+                ..Default::default()
+            })
+            .await
+            .expect("disable boolean preferences");
+        let mut expected = original;
+        expected.download_artwork = false;
+        expected.skip_verified_files = false;
+        assert_eq!(updated, expected);
+        assert_eq!(storage.get_settings().await.unwrap(), expected);
+        assert_eq!(
+            storage
+                .update_settings(&AppSettingsPatch::default())
+                .await
+                .unwrap(),
+            expected
+        );
+    }
+
+    #[tokio::test]
+    async fn invalid_settings_patch_does_not_partially_update_fields() {
+        let storage = Storage::open_memory().await.expect("open database");
+        let original = storage.get_settings().await.unwrap();
+        for patch in [
+            AppSettingsPatch {
+                concurrency: Some(0),
+                download_artwork: Some(true),
+                ..Default::default()
+            },
+            AppSettingsPatch {
+                concurrency: Some(9),
+                download_artwork: Some(true),
+                ..Default::default()
+            },
+            AppSettingsPatch {
+                download_directory: Some("relative/path".to_owned()),
+                concurrency: Some(8),
+                ..Default::default()
+            },
+            AppSettingsPatch {
+                download_directory: Some("  ".to_owned()),
+                concurrency: Some(8),
+                ..Default::default()
+            },
+        ] {
+            assert!(storage.update_settings(&patch).await.is_err());
+            assert_eq!(storage.get_settings().await.unwrap(), original);
+        }
     }
 
     #[tokio::test]
@@ -1112,6 +1297,7 @@ mod tests {
         assert_eq!(job.sequence, 2);
         assert_eq!(tracks[0].state, JobState::Interrupted);
         storage.pool.close().await;
+        drop(storage);
         tokio::fs::remove_dir_all(&directory)
             .await
             .expect("remove recovery directory");
@@ -1158,6 +1344,7 @@ mod tests {
         assert_eq!(job.state, JobState::Interrupted);
         assert_eq!(tracks[0].state, JobState::Interrupted);
         storage.pool.close().await;
+        drop(storage);
         tokio::fs::remove_dir_all(&directory)
             .await
             .expect("remove recovery directory");

@@ -17,6 +17,19 @@ use commands::{
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Acquire the instance lock before setup opens and recovers the database.
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(window) = app.get_webview_window("main") {
+                for result in [window.show(), window.unminimize(), window.set_focus()] {
+                    if let Err(error) = result {
+                        tracing::warn!(
+                            error = %crate::logging::redact(&error.to_string()),
+                            "failed to activate the existing window"
+                        );
+                    }
+                }
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
