@@ -5,6 +5,7 @@ import { useSearchStore } from "../../stores/useSearchStore";
 import { Tooltip } from "../../components/ui/Tooltip";
 import { AlbumDetailPane } from "./AlbumDetailPane";
 import { BatchEnqueueDialog } from "./BatchEnqueueDialog";
+import { SearchSplitPane } from "./SearchSplitPane";
 import { useStrings } from "../../i18n/useStrings";
 import styles from "./SearchPage.module.css";
 
@@ -63,8 +64,8 @@ export const SearchPage: React.FC = () => {
       </div>
 
       {/* Content Split: List on Left, Detail on Right */}
-      <div className={styles.contentSplit}>
-        <div className={styles.listColumn}>
+      <SearchSplitPane results={
+        <>
           <div className={styles.listHeader}>
             <span>{strings.search.resultsCount(searchResults.length)}</span>
           </div>
@@ -129,8 +130,8 @@ export const SearchPage: React.FC = () => {
               })
             )}
           </div>
-        </div>
-
+        </>
+      }>
         {/* Detail Pane */}
         <AlbumDetailPane
           key={selectedAlbumDetails?.summary.sourceUrl ?? "empty"}
@@ -138,7 +139,7 @@ export const SearchPage: React.FC = () => {
           isLoading={isLoadingDetails}
           error={detailsError}
         />
-      </div>
+      </SearchSplitPane>
     </div>
   );
 };
