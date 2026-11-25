@@ -68,7 +68,6 @@ export const SettingsPage: React.FC = () => {
     updateStatus === "checking" ||
     updateStatus === "downloading" ||
     updateStatus === "installing";
-  const isUpdateCheckDisabled = isUpdateRunning || updateStatus === "downloaded";
   const downloadPercent = totalBytes && totalBytes > 0
     ? Math.min(100, Math.round((downloadedBytes / totalBytes) * 100))
     : null;
@@ -197,6 +196,14 @@ export const SettingsPage: React.FC = () => {
 
   const handleCheckForUpdate = () => {
     setIsUpdateDialogOpen(true);
+    if (
+      updateStatus === "checking" ||
+      updateStatus === "downloading" ||
+      updateStatus === "downloaded" ||
+      updateStatus === "installing"
+    ) {
+      return;
+    }
     void checkForUpdate();
   };
 
@@ -502,7 +509,6 @@ export const SettingsPage: React.FC = () => {
               <button
                 type="button"
                 className={styles.button}
-                disabled={isUpdateCheckDisabled}
                 onClick={handleCheckForUpdate}
               >
                 {isUpdateRunning ? <Loader2 size={14} className={styles.spinner} /> : <RefreshCw size={14} />}
