@@ -1,0 +1,70 @@
+name: Sync Release Notes to Updater Metadata
+
+on:
+  release:
+    types: [published, edited]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-release-notes-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  sync-latest-json:
+    name: Sync latest.json notes
+    if: ${{ !github.event.release.draft }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update notes in latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ github.event.release.id }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          set -euo pipefail
+
+          asset_id="$(gh api "repos/${{ github.repository }}/releases/$RELEASE_ID" \
+            --jq '.assets[] | select(.name == "latest.json") | .id' | head -n 1)"
+
+          if [[ -z "$asset_id" || "$asset_id" == "null" ]]; then
+            echo "No latest.json asset found for release $RELEASE_TAG; skipping."
+            exit 0
+          fi
+
+          mkdir -p "$RUNNER_TEMP/updater"
+          latest_path="$RUNNER_TEMP/updater/latest.json"
+
+          gh api \
+            --header "Accept: application/octet-stream" \
+            "repos/${{ github.repository }}/releases/assets/$asset_id" \
+            > "$latest_path"
+
+          changed="$(node - "$latest_path" <<'NODE'
+          const fs = require("node:fs");
+          const [filePath] = process.argv.slice(2);
+          const metadata = JSON.parse(fs.readFileSync(filePath, "utf8"));
+          const nextNotes = (process.env.RELEASE_BODY ?? "")
+            .replace(/\r\n/g, "\n")
+            .trim();
+
+          if (metadata.notes === nextNotes) {
+            process.stdout.write("false");
+            process.exit(0);
+          }
+
+          metadata.notes = nextNotes;
+          fs.writeFileSync(filePath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+          process.stdout.write("true");
+          NODE
+          )"
+
+          if [[ "$changed" != "true" ]]; then
+            echo "latest.json notes are already up to date for $RELEASE_TAG."
+            exit 0
+          fi
+
+          gh release upload "$RELEASE_TAG" "$latest_path" --clobber
+          echo "Updated latest.json notes for $RELEASE_TAG."

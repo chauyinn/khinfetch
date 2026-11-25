@@ -31,6 +31,7 @@ import { useToastStore } from "../../stores/useToastStore";
 import { useJobsStore } from "../../stores/useJobsStore";
 import { useUpdateStore } from "../../stores/useUpdateStore";
 import { Switch } from "../../components/ui/Switch";
+import { ReleaseNotesMarkdown } from "../../components/ui/ReleaseNotesMarkdown";
 import { useStrings } from "../../i18n/useStrings";
 import logo from "../../assets/logo.png";
 import styles from "./SettingsPage.module.css";
@@ -631,7 +632,12 @@ export const SettingsPage: React.FC = () => {
                       )}
                     </div>
                   </div>
-                  <div className={styles.updateNotesBody}>{update.body}</div>
+                  <div className={styles.updateNotesBody}>
+                    <ReleaseNotesMarkdown
+                      content={update.body}
+                      onOpenLink={(url) => void backendClient.openExternalUrl(url)}
+                    />
+                  </div>
                 </section>
               )}
             </div>

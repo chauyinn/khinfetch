@@ -438,13 +438,12 @@
 }
 
 .updateNotesBody {
-  max-height: 190px;
+  max-height: 220px;
   overflow-y: auto;
   color: var(--text-secondary);
   font-size: var(--font-size-xs);
   line-height: 1.65;
   user-select: text;
-  white-space: pre-wrap;
 }
 
 .updateDialogFooter {

@@ -6,6 +6,7 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
+use url::Url;
 use uuid::Uuid;
 
 use crate::domain::{
@@ -296,9 +297,32 @@ fn validate_external_url(url: &str) -> AppResult<String> {
         return Ok(url.to_owned());
     }
 
+    if let Some(repo_url) = parse_project_repository_url(url) {
+        return Ok(repo_url);
+    }
+
     validate_source_url(url)
         .map(|source| source.url.to_string())
         .map_err(|_| AppError::invalid_url("不允许打开此外部链接"))
+}
+
+fn parse_project_repository_url(url: &str) -> Option<String> {
+    let parsed = Url::parse(url).ok()?;
+    if parsed.scheme() != "https"
+        || parsed.host_str() != Some("github.com")
+        || parsed.port().is_some()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return None;
+    }
+
+    let path = parsed.path();
+    if path == "/chauyinn/khinfetch" || path.starts_with("/chauyinn/khinfetch/") {
+        Some(parsed.to_string())
+    } else {
+        None
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -613,6 +637,16 @@ mod tests {
         assert!(validate_external_url("https://downloads.khinsider.com").is_ok());
         assert!(validate_external_url("https://github.com/weespin/KhinsiderDownloader").is_ok());
         assert!(validate_external_url(RELEASE_URL).is_ok());
+        assert!(validate_external_url("https://github.com/chauyinn/khinfetch").is_ok());
+        assert!(validate_external_url(
+            "https://github.com/chauyinn/khinfetch/compare/v0.1.3...v0.1.4"
+        )
+        .is_ok());
+        assert!(validate_external_url("https://github.com/chauyinn/khinfetch-evil").is_err());
+        assert!(
+            validate_external_url("https://github.com/chauyinn/khinfetch/../../other/repo")
+                .is_err()
+        );
         assert!(validate_external_url(
             "https://downloads.khinsider.com/game-soundtracks/album/example"
         )
