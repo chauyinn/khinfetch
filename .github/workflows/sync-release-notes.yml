@@ -20,6 +20,7 @@ jobs:
       - name: Update notes in latest.json
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_ID: ${{ github.event.release.id }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           RELEASE_BODY: ${{ github.event.release.body }}
@@ -66,5 +67,5 @@ jobs:
             exit 0
           fi
 
-          gh release upload "$RELEASE_TAG" "$latest_path" --clobber
+          gh release upload "$RELEASE_TAG" "$latest_path" --repo "$GH_REPO" --clobber
           echo "Updated latest.json notes for $RELEASE_TAG."
