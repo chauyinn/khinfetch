@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, REFERER, RETRY_AFTER, UPGRADE_INSECURE_REQUESTS};
+use reqwest::header::{
+    HeaderMap, ACCEPT, ACCEPT_LANGUAGE, REFERER, RETRY_AFTER, UPGRADE_INSECURE_REQUESTS,
+};
 use reqwest::{redirect::Policy, Client, StatusCode};
 use url::Url;
 
@@ -16,6 +18,17 @@ const MAX_HTML_BYTES: u64 = 8 * 1024 * 1024;
 
 pub const DEFAULT_USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
+
+pub(crate) const CLOUDFLARE_CHALLENGE_MESSAGE: &str =
+    "触发了 Cloudflare 安全验证（HTTP 403），当前网络或代理节点可能受限，请尝试切换网络/节点后重试";
+
+pub(crate) fn is_cloudflare_challenge(status: StatusCode, headers: &HeaderMap) -> bool {
+    status == StatusCode::FORBIDDEN
+        && headers
+            .get("cf-mitigated")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.eq_ignore_ascii_case("challenge"))
+}
 
 #[derive(Clone)]
 pub struct KhinsiderClient {
@@ -130,6 +143,9 @@ impl KhinsiderClient {
                 continue;
             }
             if !status.is_success() {
+                if is_cloudflare_challenge(status, response.headers()) {
+                    return Err(AppError::network(CLOUDFLARE_CHALLENGE_MESSAGE, false));
+                }
                 let retryable = status.is_server_error() || status == StatusCode::REQUEST_TIMEOUT;
                 return Err(AppError::network(
                     format!("站点返回 HTTP {status}"),
@@ -158,6 +174,30 @@ impl KhinsiderClient {
             last_error.unwrap_or_else(|| "网络请求失败".to_string()),
             true,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use reqwest::header::{HeaderMap, HeaderValue};
+    use reqwest::StatusCode;
+
+    use super::is_cloudflare_challenge;
+
+    #[test]
+    fn detects_cloudflare_challenge_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("cf-mitigated", HeaderValue::from_static("challenge"));
+        assert!(is_cloudflare_challenge(StatusCode::FORBIDDEN, &headers));
+
+        headers.insert("cf-mitigated", HeaderValue::from_static("Challenge"));
+        assert!(is_cloudflare_challenge(StatusCode::FORBIDDEN, &headers));
+        assert!(!is_cloudflare_challenge(StatusCode::OK, &headers));
+
+        assert!(!is_cloudflare_challenge(
+            StatusCode::FORBIDDEN,
+            &HeaderMap::new()
+        ));
     }
 }
 

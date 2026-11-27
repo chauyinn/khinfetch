@@ -12,7 +12,10 @@ use url::Url;
 
 use crate::{
     domain::{AppError, AppResult, ErrorCode},
-    khinsider::{validate_artwork_url, validate_media_url, DEFAULT_USER_AGENT},
+    khinsider::{
+        is_cloudflare_challenge, validate_artwork_url, validate_media_url,
+        CLOUDFLARE_CHALLENGE_MESSAGE, DEFAULT_USER_AGENT,
+    },
 };
 
 const MAX_ATTEMPTS: u32 = 4;
@@ -275,6 +278,9 @@ impl DownloadClient {
             ));
         }
         if status != StatusCode::OK && status != StatusCode::PARTIAL_CONTENT {
+            if is_cloudflare_challenge(status, response.headers()) {
+                return Err(AppError::network(CLOUDFLARE_CHALLENGE_MESSAGE, false));
+            }
             return Err(AppError::network(
                 format!("下载服务器返回 HTTP {status}"),
                 false,
