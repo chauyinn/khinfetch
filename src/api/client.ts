@@ -64,6 +64,7 @@ export interface BackendClient {
   updateSettings(patch: AppSettingsPatch): Promise<AppSettings>;
   chooseDownloadDirectory(): Promise<string | null>;
   openDownloadDirectory(): Promise<void>;
+  openJobDirectory(jobId: string): Promise<void>;
   openLogDirectory(): Promise<void>;
   openExternalUrl(url: string): Promise<void>;
   onJobUpdated(handler: (job: AlbumJob) => void): Promise<UnlistenFn>;
@@ -170,6 +171,7 @@ class TauriBackendClient implements BackendClient {
   updateSettings(patch: AppSettingsPatch) { return invoke<AppSettings>("update_settings", { patch }); }
   chooseDownloadDirectory() { return invoke<string | null>("choose_download_directory"); }
   openDownloadDirectory() { return invoke<void>("open_download_directory"); }
+  openJobDirectory(jobId: string) { return invoke<void>("open_job_directory", { jobId }); }
   openLogDirectory() { return invoke<void>("open_log_directory"); }
   openExternalUrl(url: string) { return invoke<void>("open_external_url", { url }); }
   onJobUpdated(handler: (job: AlbumJob) => void) { return listen<AlbumJob>("khinfetch:job-updated", (event) => handler(event.payload)); }

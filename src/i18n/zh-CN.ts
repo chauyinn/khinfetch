@@ -105,6 +105,7 @@ export const strings = {
     btnResume: "恢复下载",
     btnRetry: "重试任务",
     btnCancel: "取消下载",
+    btnOpenFolder: "打开所在目录",
     btnRemove: "移除记录 (不删除已下载文件)",
   },
   settings: {

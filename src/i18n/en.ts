@@ -109,6 +109,7 @@ export const strings = {
     btnResume: "Resume download",
     btnRetry: "Retry job",
     btnCancel: "Cancel download",
+    btnOpenFolder: "Open folder",
     btnRemove: "Remove record (downloaded files are kept)",
   },
   settings: {

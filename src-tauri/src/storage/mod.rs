@@ -646,6 +646,30 @@ impl Storage {
         Ok(())
     }
 
+    pub async fn job_output_directory(&self, job_id: &str) -> AppResult<Option<String>> {
+        if let Some(row) =
+            sqlx::query("SELECT output_directory FROM track_jobs WHERE job_id = ? LIMIT 1")
+                .bind(job_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|error| storage_error(format!("读取任务输出目录失败: {error}")))?
+        {
+            return Ok(Some(row_string(&row, "output_directory")?));
+        }
+
+        if let Some(row) =
+            sqlx::query("SELECT output_directory FROM artwork_jobs WHERE job_id = ? LIMIT 1")
+                .bind(job_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|error| storage_error(format!("读取任务输出目录失败: {error}")))?
+        {
+            return Ok(Some(row_string(&row, "output_directory")?));
+        }
+
+        Ok(None)
+    }
+
     pub async fn job_downloads_artwork(&self, job_id: &str) -> AppResult<bool> {
         let row = sqlx::query("SELECT download_artwork FROM album_jobs WHERE id = ?")
             .bind(job_id)

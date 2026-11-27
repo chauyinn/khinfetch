@@ -254,6 +254,37 @@ pub async fn open_download_directory(app: AppHandle, state: State<'_, AppState>)
         })
 }
 
+#[tauri::command(rename_all = "camelCase")]
+pub async fn open_job_directory(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    job_id: String,
+) -> AppResult<()> {
+    let directory = state
+        .storage
+        .job_output_directory(&job_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::new(ErrorCode::PermissionDenied, "未找到该任务的下载目录", false)
+        })?;
+    if !Path::new(&directory).is_dir() {
+        return Err(AppError::new(
+            ErrorCode::PermissionDenied,
+            "文件所在目录不存在或已被移动",
+            false,
+        ));
+    }
+    app.opener()
+        .open_path(directory, None::<String>)
+        .map_err(|error| {
+            AppError::new(
+                ErrorCode::PermissionDenied,
+                format!("无法打开下载目录: {error}"),
+                false,
+            )
+        })
+}
+
 #[tauri::command]
 pub async fn open_log_directory(app: AppHandle) -> AppResult<()> {
     let data_dir = app

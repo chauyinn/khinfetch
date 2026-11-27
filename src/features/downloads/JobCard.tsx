@@ -1,7 +1,10 @@
 import React from "react";
-import { Disc, Pause, Play, RefreshCw, Trash2, XCircle, AlertCircle, CheckCircle2, Clock, ListMusic } from "lucide-react";
+import { Disc, FolderOpen, Pause, Play, RefreshCw, Trash2, XCircle, AlertCircle, CheckCircle2, Clock, ListMusic } from "lucide-react";
 import type { AlbumJob, JobState } from "../../api/generated";
+import { backendClient } from "../../api/client";
+import { errorMessage } from "../../api/errors";
 import { useJobsStore } from "../../stores/useJobsStore";
+import { useToastStore } from "../../stores/useToastStore";
 import { Tooltip } from "../../components/ui/Tooltip";
 import { useStrings } from "../../i18n/useStrings";
 import styles from "./DownloadsPage.module.css";
@@ -13,6 +16,15 @@ interface JobCardProps {
 export const JobCard: React.FC<JobCardProps> = ({ job }) => {
   const strings = useStrings();
   const { pauseJob, resumeJob, cancelJob, retryJob, removeJob } = useJobsStore();
+  const { showToast } = useToastStore();
+
+  const handleOpenFolder = async () => {
+    try {
+      await backendClient.openJobDirectory(job.id);
+    } catch (error) {
+      showToast(strings.toast.openDirError(errorMessage(error, strings.errors.unknown)), "error");
+    }
+  };
 
   const {
     album,
@@ -166,6 +178,19 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
                 aria-label={strings.downloads.btnCancel}
               >
                 <XCircle size={16} />
+              </button>
+            </Tooltip>
+          )}
+
+          {(state === "completed" || completedTracks > 0) && (
+            <Tooltip content={strings.downloads.btnOpenFolder}>
+              <button
+                type="button"
+                className={styles.iconBtn}
+                onClick={() => void handleOpenFolder()}
+                aria-label={strings.downloads.btnOpenFolder}
+              >
+                <FolderOpen size={16} />
               </button>
             </Tooltip>
           )}

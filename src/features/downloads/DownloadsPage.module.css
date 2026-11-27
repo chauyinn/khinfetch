@@ -186,7 +186,7 @@
 
 .jobMain {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 92px;
+  grid-template-columns: 44px minmax(0, 1fr) minmax(92px, auto);
   align-items: center;
   gap: 14px;
 }
