@@ -217,7 +217,9 @@ export function BatchEnqueueDialog() {
                           <span className={styles.rejectedUrl} title={failure.sourceUrl}>
                             {failure.sourceUrl}
                           </span>
-                          <span className={styles.rejectedReason}>{failure.error.message}</span>
+                          <span className={styles.rejectedReason}>
+                        {errorMessage(failure.error, strings.errors.unknown)}
+                      </span>
                         </li>
                       ))}
                     </ul>

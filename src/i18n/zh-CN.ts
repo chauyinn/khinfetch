@@ -212,6 +212,9 @@ export const strings = {
     settingsLoadFallback: "无法加载设置",
     jobsLoadFallback: "无法加载下载队列",
     jobsRefreshFallback: "刷新队列失败",
+    cloudflareChallenge: "触发了 Cloudflare 安全验证（HTTP 403），当前网络或代理节点可能受限，请尝试切换网络/节点后重试",
+    jobDirectoryNotFound: "未找到该任务的下载目录",
+    jobDirectoryMissing: "文件所在目录不存在或已被移动",
   },
 };
 

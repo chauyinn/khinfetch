@@ -123,7 +123,7 @@ export const JobCard: React.FC<JobCardProps> = ({ job }) => {
 
           {error && (
             <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-danger)" }}>
-              {strings.downloads.errorMessage(error.message)}
+              {strings.downloads.errorMessage(errorMessage(error, strings.errors.unknown))}
             </div>
           )}
         </div>

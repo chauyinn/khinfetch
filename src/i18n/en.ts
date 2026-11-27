@@ -217,5 +217,8 @@ export const strings = {
     settingsLoadFallback: "Could not load settings",
     jobsLoadFallback: "Could not load the download queue",
     jobsRefreshFallback: "Could not refresh the download queue",
+    cloudflareChallenge: "Blocked by a Cloudflare security challenge (HTTP 403). Your current network or proxy node may be restricted; try switching networks or nodes and retry.",
+    jobDirectoryNotFound: "Download folder for this job was not found",
+    jobDirectoryMissing: "The folder for these files does not exist or has been moved",
   },
 } satisfies Messages;
