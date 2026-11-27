@@ -69,9 +69,10 @@ pub async fn search_albums(
     let query = query.trim();
     let query_length = query.chars().count();
     if !(1..=120).contains(&query_length) {
-        return Err(AppError::invalid_url(
-            "搜索内容长度必须在 1 到 120 个字符之间",
-        ));
+        return Err(
+            AppError::invalid_url("搜索内容长度必须在 1 到 120 个字符之间")
+                .with_key("search_query_length"),
+        );
     }
 
     state.khinsider.search(query).await
@@ -149,7 +150,9 @@ pub async fn enqueue_urls(
     request: BatchEnqueueRequest,
 ) -> AppResult<BatchEnqueueResult> {
     if request.source_urls.is_empty() || request.source_urls.len() > 100 {
-        return Err(AppError::invalid_url("每批必须包含 1 到 100 个链接"));
+        return Err(
+            AppError::invalid_url("每批必须包含 1 到 100 个链接").with_key("batch_url_count")
+        );
     }
     let mut accepted = Vec::new();
     let mut rejected = Vec::new();
@@ -223,11 +226,14 @@ pub async fn choose_download_directory(
         return Ok(None);
     };
     let path = selected.into_path().map_err(|error| {
+        let detail = error.to_string();
         AppError::new(
             crate::domain::ErrorCode::PermissionDenied,
-            format!("无法读取所选目录: {error}"),
+            format!("无法读取所选目录: {detail}"),
             false,
         )
+        .with_key("choose_dir_read_failed")
+        .with_param("detail", detail)
     })?;
     let path = normalize_directory(path)?;
     let settings = state
@@ -246,11 +252,14 @@ pub async fn open_download_directory(app: AppHandle, state: State<'_, AppState>)
     app.opener()
         .open_path(settings.download_directory, None::<String>)
         .map_err(|error| {
+            let detail = error.to_string();
             AppError::new(
                 crate::domain::ErrorCode::PermissionDenied,
-                format!("无法打开下载目录: {error}"),
+                format!("无法打开下载目录: {detail}"),
                 false,
             )
+            .with_key("open_download_dir_failed")
+            .with_param("detail", detail)
         })
 }
 
@@ -266,22 +275,27 @@ pub async fn open_job_directory(
         .await?
         .ok_or_else(|| {
             AppError::new(ErrorCode::PermissionDenied, "未找到该任务的下载目录", false)
+                .with_key("job_directory_not_found")
         })?;
     if !Path::new(&directory).is_dir() {
         return Err(AppError::new(
             ErrorCode::PermissionDenied,
             "文件所在目录不存在或已被移动",
             false,
-        ));
+        )
+        .with_key("job_directory_missing"));
     }
     app.opener()
         .open_path(directory, None::<String>)
         .map_err(|error| {
+            let detail = error.to_string();
             AppError::new(
                 ErrorCode::PermissionDenied,
-                format!("无法打开下载目录: {error}"),
+                format!("无法打开下载目录: {detail}"),
                 false,
             )
+            .with_key("open_download_dir_failed")
+            .with_param("detail", detail)
         })
 }
 
@@ -293,20 +307,26 @@ pub async fn open_log_directory(app: AppHandle) -> AppResult<()> {
         .map_err(|error| AppError::internal(format!("无法定位应用数据目录: {error}")))?;
     let log_dir = data_dir.join("logs");
     std::fs::create_dir_all(&log_dir).map_err(|error| {
+        let detail = error.to_string();
         AppError::new(
             crate::domain::ErrorCode::PermissionDenied,
-            format!("无法创建日志目录: {error}"),
+            format!("无法创建日志目录: {detail}"),
             false,
         )
+        .with_key("create_log_dir_failed")
+        .with_param("detail", detail)
     })?;
     app.opener()
         .open_path(log_dir.to_string_lossy().into_owned(), None::<String>)
         .map_err(|error| {
+            let detail = error.to_string();
             AppError::new(
                 crate::domain::ErrorCode::PermissionDenied,
-                format!("无法打开日志目录: {error}"),
+                format!("无法打开日志目录: {detail}"),
                 false,
             )
+            .with_key("open_log_dir_failed")
+            .with_param("detail", detail)
         })
 }
 
@@ -314,11 +334,14 @@ pub async fn open_log_directory(app: AppHandle) -> AppResult<()> {
 pub fn open_external_url(app: AppHandle, url: String) -> AppResult<()> {
     let url = validate_external_url(&url)?;
     app.opener().open_url(url, None::<String>).map_err(|error| {
+        let detail = error.to_string();
         AppError::new(
             ErrorCode::PermissionDenied,
-            format!("无法打开外部链接: {error}"),
+            format!("无法打开外部链接: {detail}"),
             false,
         )
+        .with_key("open_external_url_failed")
+        .with_param("detail", detail)
     })
 }
 
@@ -334,7 +357,9 @@ fn validate_external_url(url: &str) -> AppResult<String> {
 
     validate_source_url(url)
         .map(|source| source.url.to_string())
-        .map_err(|_| AppError::invalid_url("不允许打开此外部链接"))
+        .map_err(|_| {
+            AppError::invalid_url("不允许打开此外部链接").with_key("external_url_not_allowed")
+        })
 }
 
 fn parse_project_repository_url(url: &str) -> Option<String> {
@@ -397,14 +422,16 @@ fn normalize_directory(path: PathBuf) -> AppResult<PathBuf> {
             crate::domain::ErrorCode::PermissionDenied,
             "下载目录不能为空",
             false,
-        ));
+        )
+        .with_key("download_dir_empty"));
     }
     if path.to_string_lossy().contains('\0') {
         return Err(AppError::new(
             crate::domain::ErrorCode::PermissionDenied,
             "下载目录包含无效字符",
             false,
-        ));
+        )
+        .with_key("download_dir_invalid_chars"));
     }
     Ok(path)
 }
@@ -590,17 +617,18 @@ fn select_tracks(
 ) -> AppResult<Vec<crate::domain::TrackSummary>> {
     let Some(selected_track_ids) = selected_track_ids else {
         if details.tracks.is_empty() {
-            return Err(AppError::new(
-                ErrorCode::ParseChanged,
-                "专辑没有可下载曲目",
-                false,
-            ));
+            return Err(
+                AppError::new(ErrorCode::ParseChanged, "专辑没有可下载曲目", false)
+                    .with_key("album_no_tracks"),
+            );
         }
         return Ok(details.tracks.clone());
     };
     let requested = selected_track_ids.iter().collect::<HashSet<_>>();
     if requested.is_empty() {
-        return Err(AppError::invalid_url("请至少选择一首曲目"));
+        return Err(
+            AppError::invalid_url("请至少选择一首曲目").with_key("select_at_least_one_track")
+        );
     }
     let tracks = details
         .tracks
@@ -609,7 +637,9 @@ fn select_tracks(
         .cloned()
         .collect::<Vec<_>>();
     if tracks.len() != requested.len() {
-        return Err(AppError::invalid_url("选中的曲目不存在或已经失效"));
+        return Err(
+            AppError::invalid_url("选中的曲目不存在或已经失效").with_key("selected_tracks_invalid")
+        );
     }
     Ok(tracks)
 }
@@ -620,7 +650,10 @@ fn file_error(error: std::io::Error) -> AppError {
         _ if error.kind() == std::io::ErrorKind::PermissionDenied => ErrorCode::PermissionDenied,
         _ => ErrorCode::Internal,
     };
-    AppError::new(code, format!("文件操作失败: {error}"), false)
+    let detail = error.to_string();
+    AppError::new(code, format!("文件操作失败: {detail}"), false)
+        .with_key("file_operation_failed")
+        .with_param("detail", detail)
 }
 
 #[cfg(test)]

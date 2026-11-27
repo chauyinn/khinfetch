@@ -16,15 +16,19 @@ pub(crate) fn select_variant(
             .iter()
             .find(|variant| variant.format.eq_ignore_ascii_case(format))
     });
-    selected.cloned().ok_or_else(|| {
-        AppError::new(
+    selected.cloned().ok_or_else(|| match quality {
+        QualityPreference::Mp3 => AppError::new(
             ErrorCode::UnsupportedFormat,
-            match quality {
-                QualityPreference::Mp3 => "该曲目没有可用的 MP3 文件",
-                QualityPreference::BestAvailable => "该曲目没有受支持的音频格式",
-            },
+            "该曲目没有可用的 MP3 文件",
             false,
         )
+        .with_key("track_no_mp3"),
+        QualityPreference::BestAvailable => AppError::new(
+            ErrorCode::UnsupportedFormat,
+            "该曲目没有受支持的音频格式",
+            false,
+        )
+        .with_key("track_no_supported_format"),
     })
 }
 

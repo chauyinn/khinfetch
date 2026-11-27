@@ -89,10 +89,12 @@ impl KhinsiderClient {
 
     async fn fetch_html(&self, url: Url) -> AppResult<(Url, String)> {
         if !validate_html_url(&url) {
-            return Err(AppError::invalid_url("请求地址不属于 Khinsider"));
+            return Err(
+                AppError::invalid_url("请求地址不属于 Khinsider").with_key("url_not_khinsider")
+            );
         }
 
-        let mut last_error = None;
+        let mut last_error: Option<AppError> = None;
         for attempt in 0..=3 {
             let response = self
                 .client
@@ -114,12 +116,20 @@ impl KhinsiderClient {
             let response = match response {
                 Ok(response) => response,
                 Err(error) if attempt < 3 && (error.is_timeout() || error.is_connect()) => {
-                    last_error = Some(error.to_string());
+                    let detail = error.to_string();
+                    last_error = Some(
+                        AppError::network(format!("网络请求失败: {detail}"), true)
+                            .with_key("network_request_failed")
+                            .with_param("detail", detail),
+                    );
                     tokio::time::sleep(Duration::from_secs(1 << attempt)).await;
                     continue;
                 }
                 Err(error) => {
-                    return Err(AppError::network(format!("网络请求失败: {error}"), true))
+                    let detail = error.to_string();
+                    return Err(AppError::network(format!("网络请求失败: {detail}"), true)
+                        .with_key("network_request_failed")
+                        .with_param("detail", detail));
                 }
             };
 
@@ -135,45 +145,58 @@ impl KhinsiderClient {
                     tokio::time::sleep(Duration::from_secs(delay.min(30))).await;
                     continue;
                 }
-                return Err(AppError::rate_limited("站点请求过于频繁，请稍后重试"));
+                return Err(
+                    AppError::rate_limited("站点请求过于频繁，请稍后重试").with_key("rate_limited")
+                );
             }
             if status.is_server_error() && attempt < 3 {
-                last_error = Some(format!("HTTP {status}"));
+                last_error = Some(
+                    AppError::network(format!("站点返回 HTTP {status}"), true)
+                        .with_key("site_http_status")
+                        .with_param("status", status.to_string()),
+                );
                 tokio::time::sleep(Duration::from_secs(1 << attempt)).await;
                 continue;
             }
             if !status.is_success() {
                 if is_cloudflare_challenge(status, response.headers()) {
-                    return Err(AppError::network(CLOUDFLARE_CHALLENGE_MESSAGE, false));
+                    return Err(AppError::network(CLOUDFLARE_CHALLENGE_MESSAGE, false)
+                        .with_key("cloudflare_challenge"));
                 }
                 let retryable = status.is_server_error() || status == StatusCode::REQUEST_TIMEOUT;
-                return Err(AppError::network(
-                    format!("站点返回 HTTP {status}"),
-                    retryable,
-                ));
+                return Err(
+                    AppError::network(format!("站点返回 HTTP {status}"), retryable)
+                        .with_key("site_http_status")
+                        .with_param("status", status.to_string()),
+                );
             }
             if response
                 .content_length()
                 .is_some_and(|length| length > MAX_HTML_BYTES)
             {
-                return Err(AppError::parse_changed("页面内容超过允许大小"));
+                return Err(
+                    AppError::parse_changed("页面内容超过允许大小").with_key("page_too_large")
+                );
             }
 
             let final_url = response.url().clone();
-            let bytes = response
-                .bytes()
-                .await
-                .map_err(|error| AppError::network(format!("读取页面失败: {error}"), true))?;
+            let bytes = response.bytes().await.map_err(|error| {
+                let detail = error.to_string();
+                AppError::network(format!("读取页面失败: {detail}"), true)
+                    .with_key("page_read_failed")
+                    .with_param("detail", detail)
+            })?;
             if bytes.len() as u64 > MAX_HTML_BYTES {
-                return Err(AppError::parse_changed("页面内容超过允许大小"));
+                return Err(
+                    AppError::parse_changed("页面内容超过允许大小").with_key("page_too_large")
+                );
             }
             return Ok((final_url, String::from_utf8_lossy(&bytes).into_owned()));
         }
 
-        Err(AppError::network(
-            last_error.unwrap_or_else(|| "网络请求失败".to_string()),
-            true,
-        ))
+        Err(last_error.unwrap_or_else(|| {
+            AppError::network("网络请求失败", true).with_key("network_request_failed")
+        }))
     }
 }
 

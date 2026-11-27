@@ -19,7 +19,15 @@ pub(crate) enum ParseError {
 
 impl From<ParseError> for AppError {
     fn from(error: ParseError) -> Self {
-        AppError::parse_changed(error.to_string())
+        let message = error.to_string();
+        match error {
+            ParseError::Structure(detail) => AppError::parse_changed(message)
+                .with_key("parse_structure_missing")
+                .with_param("detail", detail),
+            ParseError::Link(detail) => AppError::parse_changed(message)
+                .with_key("parse_invalid_link")
+                .with_param("detail", detail),
+        }
     }
 }
 

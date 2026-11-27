@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -26,6 +28,10 @@ pub struct AppError {
     pub code: ErrorCode,
     pub message: String,
     pub retryable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_key: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub message_params: BTreeMap<String, String>,
 }
 
 impl AppError {
@@ -54,6 +60,18 @@ impl AppError {
             code,
             message: message.into(),
             retryable,
+            message_key: None,
+            message_params: BTreeMap::new(),
         }
+    }
+
+    pub fn with_key(mut self, key: impl Into<String>) -> Self {
+        self.message_key = Some(key.into());
+        self
+    }
+
+    pub fn with_param(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.message_params.insert(name.into(), value.into());
+        self
     }
 }

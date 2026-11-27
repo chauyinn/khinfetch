@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { AlbumJob, BackendNotice } from "../api/generated";
 import { backendClient } from "../api/client";
-import { errorMessage } from "../api/errors";
+import { errorMessage, noticeMessage } from "../api/errors";
 import { getStrings } from "../i18n/catalog";
 import { useAppStore } from "./useAppStore";
 import { useToastStore } from "./useToastStore";
@@ -126,7 +126,7 @@ export const useJobsStore = create<JobsState>((set, get) => {
       });
 
       const unlistenNotice = await backendClient.onNotice((notice: BackendNotice) => {
-        useToastStore.getState().showToast(notice.message, "warning");
+        useToastStore.getState().showToast(noticeMessage(notice), "warning");
       });
 
       // Load authoritative list from SQLite / backend

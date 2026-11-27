@@ -142,9 +142,11 @@ impl DownloadManager {
             .storage
             .get_job(job_id)
             .await?
-            .ok_or_else(|| storage_error("下载任务不存在"))?;
+            .ok_or_else(|| storage_error("下载任务不存在").with_key("job_not_found"))?;
         if job.state != JobState::Queued {
-            return Err(invalid_state("只有排队中的任务可以启动"));
+            return Err(
+                invalid_state("只有排队中的任务可以启动").with_key("job_only_queued_can_start")
+            );
         }
 
         let (completion_tx, completion) = watch::channel(false);
@@ -202,12 +204,13 @@ impl DownloadManager {
             .storage
             .get_job(job_id)
             .await?
-            .ok_or_else(|| storage_error("下载任务不存在"))?;
+            .ok_or_else(|| storage_error("下载任务不存在").with_key("job_not_found"))?;
         if !matches!(
             job.state,
             JobState::Paused | JobState::Interrupted | JobState::Failed
         ) {
-            return Err(invalid_state("只有暂停、中断或失败的任务可以恢复"));
+            return Err(invalid_state("只有暂停、中断或失败的任务可以恢复")
+                .with_key("job_only_paused_can_resume"));
         }
         let mut tracks = self.inner.storage.list_track_jobs(job_id).await?;
         for track in &mut tracks {
@@ -238,7 +241,9 @@ impl DownloadManager {
     pub async fn remove(&self, job_id: &str) -> AppResult<()> {
         let _mutation_guard = self.inner.mutation_lock.lock().await;
         if self.inner.active.lock().await.contains_key(job_id) {
-            return Err(invalid_state("请先暂停或取消正在运行的任务"));
+            return Err(
+                invalid_state("请先暂停或取消正在运行的任务").with_key("job_stop_before_remove")
+            );
         }
         let tracks = self.inner.storage.list_track_jobs(job_id).await?;
         let artworks = self.inner.storage.list_artwork_jobs(job_id).await?;
@@ -261,14 +266,16 @@ impl DownloadManager {
             .storage
             .get_job(job_id)
             .await?
-            .ok_or_else(|| storage_error("下载任务不存在"))?;
+            .ok_or_else(|| storage_error("下载任务不存在").with_key("job_not_found"))?;
         let target_state = match reason {
             StopReason::Pause => JobState::Paused,
             StopReason::Cancel => JobState::Canceled,
             StopReason::None => return Err(AppError::internal("无效停止原因")),
         };
         if !can_transition(job.state, target_state) {
-            return Err(invalid_state("当前任务状态不支持此操作"));
+            return Err(
+                invalid_state("当前任务状态不支持此操作").with_key("job_invalid_state_action")
+            );
         }
 
         let control = { self.inner.active.lock().await.get(job_id).cloned() };
@@ -300,9 +307,10 @@ impl DownloadManager {
                 .storage
                 .get_job(job_id)
                 .await?
-                .ok_or_else(|| storage_error("下载任务不存在"))?;
+                .ok_or_else(|| storage_error("下载任务不存在").with_key("job_not_found"))?;
             if stopped.state != target_state {
-                return Err(invalid_state("下载任务未能完成请求的状态变更"));
+                return Err(invalid_state("下载任务未能完成请求的状态变更")
+                    .with_key("job_state_transition_incomplete"));
             }
             return Ok(stopped);
         }
@@ -312,9 +320,11 @@ impl DownloadManager {
             .storage
             .get_job(job_id)
             .await?
-            .ok_or_else(|| storage_error("下载任务不存在"))?;
+            .ok_or_else(|| storage_error("下载任务不存在").with_key("job_not_found"))?;
         if !can_transition(current.state, target_state) {
-            return Err(invalid_state("当前任务状态不支持此操作"));
+            return Err(
+                invalid_state("当前任务状态不支持此操作").with_key("job_invalid_state_action")
+            );
         }
         self.persist_stop(app, job_id, reason, target_state).await
     }
@@ -1218,7 +1228,7 @@ fn invalid_state(message: impl Into<String>) -> AppError {
 }
 
 fn canceled_error() -> AppError {
-    AppError::new(ErrorCode::Canceled, "下载已取消", false)
+    AppError::new(ErrorCode::Canceled, "下载已取消", false).with_key("download_canceled")
 }
 
 fn storage_error(message: impl Into<String>) -> AppError {
@@ -1231,7 +1241,10 @@ fn file_error(error: std::io::Error) -> AppError {
         _ if error.kind() == std::io::ErrorKind::PermissionDenied => ErrorCode::PermissionDenied,
         _ => ErrorCode::Internal,
     };
-    AppError::new(code, format!("文件操作失败: {error}"), false)
+    let detail = error.to_string();
+    AppError::new(code, format!("文件操作失败: {detail}"), false)
+        .with_key("file_operation_failed")
+        .with_param("detail", detail)
 }
 
 #[derive(Clone)]

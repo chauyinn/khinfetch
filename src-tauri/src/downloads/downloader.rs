@@ -199,7 +199,8 @@ impl DownloadClient {
                 Err(error) => return Err(error),
             }
         }
-        Err(last_error.unwrap_or_else(|| AppError::network("下载失败", true)))
+        Err(last_error
+            .unwrap_or_else(|| AppError::network("下载失败", true).with_key("download_failed")))
     }
 
     pub async fn remote_size(&self, media_url: &Url) -> AppResult<Option<u64>> {
@@ -252,14 +253,19 @@ impl DownloadClient {
         tokio::pin!(response);
         let response = tokio::select! {
             _ = cancellation.cancelled() => return Err(canceled_error()),
-            response = &mut response => response
-                .map_err(|error| AppError::network(format!("下载请求失败: {error}"), true))?,
+            response = &mut response => response.map_err(|error| {
+                let detail = error.to_string();
+                AppError::network(format!("下载请求失败: {detail}"), true)
+                    .with_key("download_request_failed")
+                    .with_param("detail", detail)
+            })?,
         };
         let status = response.status();
 
         if status == StatusCode::RANGE_NOT_SATISFIABLE && existing > 0 {
             reset_part(part_path).await?;
-            return Err(AppError::network("服务端拒绝续传，已重置临时文件", true));
+            return Err(AppError::network("服务端拒绝续传，已重置临时文件", true)
+                .with_key("resume_rejected"));
         }
         if status == StatusCode::TOO_MANY_REQUESTS {
             let wait = retry_after_seconds(&response).unwrap_or(1).min(30);
@@ -267,24 +273,29 @@ impl DownloadClient {
                 _ = cancellation.cancelled() => return Err(canceled_error()),
                 _ = tokio::time::sleep(Duration::from_secs(wait)) => {}
             }
-            return Err(AppError::rate_limited(format!(
-                "站点限流，请在 {wait} 秒后重试"
-            )));
+            return Err(
+                AppError::rate_limited(format!("站点限流，请在 {wait} 秒后重试"))
+                    .with_key("rate_limited_retry_after")
+                    .with_param("seconds", wait.to_string()),
+            );
         }
         if status.is_server_error() || status == StatusCode::REQUEST_TIMEOUT {
-            return Err(AppError::network(
-                format!("下载服务器返回 HTTP {status}"),
-                true,
-            ));
+            return Err(
+                AppError::network(format!("下载服务器返回 HTTP {status}"), true)
+                    .with_key("download_http_status")
+                    .with_param("status", status.to_string()),
+            );
         }
         if status != StatusCode::OK && status != StatusCode::PARTIAL_CONTENT {
             if is_cloudflare_challenge(status, response.headers()) {
-                return Err(AppError::network(CLOUDFLARE_CHALLENGE_MESSAGE, false));
+                return Err(AppError::network(CLOUDFLARE_CHALLENGE_MESSAGE, false)
+                    .with_key("cloudflare_challenge"));
             }
-            return Err(AppError::network(
-                format!("下载服务器返回 HTTP {status}"),
-                false,
-            ));
+            return Err(
+                AppError::network(format!("下载服务器返回 HTTP {status}"), false)
+                    .with_key("download_http_status")
+                    .with_param("status", status.to_string()),
+            );
         }
         if kind == DownloadKind::Artwork
             && !response
@@ -293,7 +304,9 @@ impl DownloadClient {
                 .and_then(|value| value.to_str().ok())
                 .is_some_and(|value| value.to_ascii_lowercase().starts_with("image/"))
         {
-            return Err(AppError::network("原图响应不是图片内容", false));
+            return Err(
+                AppError::network("原图响应不是图片内容", false).with_key("artwork_not_image")
+            );
         }
 
         let resumed = status == StatusCode::PARTIAL_CONTENT && existing > 0;
@@ -303,13 +316,16 @@ impl DownloadClient {
                 .get(CONTENT_RANGE)
                 .and_then(|value| value.to_str().ok())
                 .and_then(parse_content_range_start)
-                .ok_or_else(|| AppError::network("续传响应缺少有效 Content-Range", true))?;
+                .ok_or_else(|| {
+                    AppError::network("续传响应缺少有效 Content-Range", true)
+                        .with_key("resume_missing_range")
+                })?;
             if range_start != existing {
                 reset_part(part_path).await?;
-                return Err(AppError::network(
-                    "续传响应起点不匹配，已重置临时文件",
-                    true,
-                ));
+                return Err(
+                    AppError::network("续传响应起点不匹配，已重置临时文件", true)
+                        .with_key("resume_offset_mismatch"),
+                );
             }
             existing
         } else {
@@ -341,8 +357,12 @@ impl DownloadClient {
             let Some(chunk) = next else {
                 break;
             };
-            let chunk =
-                chunk.map_err(|error| AppError::network(format!("下载数据中断: {error}"), true))?;
+            let chunk = chunk.map_err(|error| {
+                let detail = error.to_string();
+                AppError::network(format!("下载数据中断: {detail}"), true)
+                    .with_key("download_stream_interrupted")
+                    .with_param("detail", detail)
+            })?;
             file.write_all(&chunk).await.map_err(file_error)?;
             bytes_received = bytes_received
                 .checked_add(chunk.len() as u64)
@@ -357,7 +377,8 @@ impl DownloadClient {
         drop(file);
 
         if bytes_total.is_some_and(|total| total != bytes_received) {
-            return Err(AppError::network("下载数据长度与响应不一致", true));
+            return Err(AppError::network("下载数据长度与响应不一致", true)
+                .with_key("download_size_mismatch"));
         }
         Ok(DownloadOutcome {
             bytes_received,
@@ -467,7 +488,7 @@ async fn reset_part(path: &Path) -> AppResult<()> {
 }
 
 fn canceled_error() -> AppError {
-    AppError::new(ErrorCode::Canceled, "下载已取消", false)
+    AppError::new(ErrorCode::Canceled, "下载已取消", false).with_key("download_canceled")
 }
 
 fn file_error(error: std::io::Error) -> AppError {
@@ -476,5 +497,8 @@ fn file_error(error: std::io::Error) -> AppError {
         _ if error.kind() == std::io::ErrorKind::PermissionDenied => ErrorCode::PermissionDenied,
         _ => ErrorCode::Internal,
     };
-    AppError::new(code, format!("文件操作失败: {error}"), false)
+    let detail = error.to_string();
+    AppError::new(code, format!("文件操作失败: {detail}"), false)
+        .with_key("file_operation_failed")
+        .with_param("detail", detail)
 }

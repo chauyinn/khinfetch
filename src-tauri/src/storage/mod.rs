@@ -738,12 +738,14 @@ fn validate_settings_patch(patch: &AppSettingsPatch) -> AppResult<()> {
                 ErrorCode::PermissionDenied,
                 "下载目录必须是有效的绝对路径",
                 false,
-            ));
+            )
+            .with_key("download_dir_must_be_absolute"));
         }
     }
     if let Some(value) = patch.concurrency {
         if !(1..=8).contains(&value) {
-            return Err(AppError::invalid_url("并发数必须在 1 到 8 之间"));
+            return Err(AppError::invalid_url("并发数必须在 1 到 8 之间")
+                .with_key("concurrency_out_of_range"));
         }
     }
     Ok(())

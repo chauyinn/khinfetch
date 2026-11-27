@@ -13,8 +13,9 @@ pub struct SourceUrl {
 }
 
 pub fn validate_source_url(input: &str) -> AppResult<SourceUrl> {
-    let url =
-        Url::parse(input.trim()).map_err(|_| AppError::invalid_url("请输入有效的 HTTPS 链接"))?;
+    let url = Url::parse(input.trim()).map_err(|_| {
+        AppError::invalid_url("请输入有效的 HTTPS 链接").with_key("invalid_https_url")
+    })?;
     validate_source(&url)
 }
 
@@ -22,7 +23,8 @@ pub fn validate_source(url: &Url) -> AppResult<SourceUrl> {
     if !validate_html_url(url) {
         return Err(AppError::invalid_url(
             "只支持 downloads.khinsider.com 的 HTTPS 专辑或播放列表链接",
-        ));
+        )
+        .with_key("unsupported_khinsider_url"));
     }
 
     let path = url.path().trim_end_matches('/');
@@ -33,9 +35,10 @@ pub fn validate_source(url: &Url) -> AppResult<SourceUrl> {
     } else if path.starts_with("/playlist/") && path.len() > "/playlist/".len() {
         SourceKind::Playlist
     } else {
-        return Err(AppError::invalid_url(
-            "链接必须指向 Khinsider 专辑或播放列表",
-        ));
+        return Err(
+            AppError::invalid_url("链接必须指向 Khinsider 专辑或播放列表")
+                .with_key("url_must_be_album_or_playlist"),
+        );
     };
 
     let mut normalized = url.clone();
