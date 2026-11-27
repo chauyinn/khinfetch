@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   AlertCircle,
@@ -60,9 +60,11 @@ export const SettingsPage: React.FC = () => {
   } = useUpdateStore();
   const strings = useStrings();
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const [isChoosingDir, setIsChoosingDir] = useState(false);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
+  const pendingPatchRef = useRef<Partial<AppSettings>>({});
+  const isFlushingRef = useRef(false);
   const settings = appSettings;
   const isUpdateRunning =
     updateStatus === "checking" ||
@@ -114,44 +116,83 @@ export const SettingsPage: React.FC = () => {
     };
   }, [appSettings, setAppSettings, setLanguageSetting, setThemeSetting, showToast, strings]);
 
-  const updatePatch = async (patch: Partial<AppSettings>) => {
-    if (!settings || isSaving) return;
-    setIsSaving(true);
+  const flushPendingPatches = async () => {
+    if (isFlushingRef.current) return;
+    isFlushingRef.current = true;
     try {
-      const fullPatch: AppSettingsPatch = {
-        downloadDirectory: patch.downloadDirectory ?? null,
-        concurrency: patch.concurrency ?? null,
-        preferredQuality: patch.preferredQuality ?? null,
-        downloadArtwork: patch.downloadArtwork ?? null,
-        skipVerifiedFiles: patch.skipVerifiedFiles ?? null,
-        loggingEnabled: patch.loggingEnabled ?? null,
-        theme: patch.theme ?? null,
-        language: patch.language ?? null,
-      };
-      const updated = await backendClient.updateSettings(fullPatch);
-      setAppSettings(updated);
-      if (patch.theme) {
-        setThemeSetting(patch.theme);
-      }
-      if (patch.language) {
-        rememberLanguagePreference(patch.language);
-        setLanguageSetting(patch.language);
+      while (Object.keys(pendingPatchRef.current).length > 0) {
+        const patch = pendingPatchRef.current;
+        pendingPatchRef.current = {};
+        const fullPatch: AppSettingsPatch = {
+          downloadDirectory: patch.downloadDirectory ?? null,
+          concurrency: patch.concurrency ?? null,
+          preferredQuality: patch.preferredQuality ?? null,
+          downloadArtwork: patch.downloadArtwork ?? null,
+          skipVerifiedFiles: patch.skipVerifiedFiles ?? null,
+          loggingEnabled: patch.loggingEnabled ?? null,
+          theme: patch.theme ?? null,
+          language: patch.language ?? null,
+        };
+        const updated = await backendClient.updateSettings(fullPatch);
+        if (Object.keys(pendingPatchRef.current).length === 0) {
+          setAppSettings(updated);
+        }
       }
     } catch (error) {
+      pendingPatchRef.current = {};
       showToast(strings.toast.settingsUpdateError(errorMessage(error, strings.errors.unknown)), "error");
+      try {
+        const fresh = await backendClient.getSettings();
+        setAppSettings(fresh);
+        setThemeSetting(fresh.theme);
+        rememberLanguagePreference(fresh.language);
+        setLanguageSetting(fresh.language);
+      } catch {
+        // Keep current UI state if reloading authoritative settings also fails.
+      }
     } finally {
-      setIsSaving(false);
+      isFlushingRef.current = false;
     }
   };
 
+  const updatePatch = (patch: Partial<AppSettings>) => {
+    const current = useAppStore.getState().settings;
+    if (!current) return;
+
+    const nextSettings: AppSettings = { ...current, ...patch };
+    setAppSettings(nextSettings);
+    if (patch.theme) {
+      setThemeSetting(patch.theme);
+    }
+    if (patch.language) {
+      rememberLanguagePreference(patch.language);
+      setLanguageSetting(patch.language);
+    }
+
+    pendingPatchRef.current = { ...pendingPatchRef.current, ...patch };
+    void flushPendingPatches();
+  };
+
+  const handleStepConcurrency = (delta: number) => {
+    const current = useAppStore.getState().settings;
+    if (!current) return;
+    const next = Math.min(8, Math.max(1, current.concurrency + delta));
+    if (next === current.concurrency) return;
+    updatePatch({ concurrency: next });
+  };
+
   const handleChooseDirectory = async () => {
+    if (isChoosingDir) return;
+    setIsChoosingDir(true);
     try {
       const dir = await backendClient.chooseDownloadDirectory();
       if (dir) {
-        await updatePatch({ downloadDirectory: dir });
+        updatePatch({ downloadDirectory: dir });
       }
     } catch (error) {
       showToast(strings.toast.chooseDirError(errorMessage(error, strings.errors.unknown)), "error");
+    } finally {
+      setIsChoosingDir(false);
     }
   };
 
@@ -284,7 +325,7 @@ export const SettingsPage: React.FC = () => {
               type="button"
               className={styles.button}
               onClick={handleChooseDirectory}
-              disabled={isSaving}
+              disabled={isChoosingDir}
             >
               <Folder size={14} />
               <span>{strings.settings.btnChooseDir}</span>
@@ -309,8 +350,8 @@ export const SettingsPage: React.FC = () => {
             <button
               type="button"
               className={styles.stepperBtn}
-              disabled={settings.concurrency <= 1 || isSaving}
-              onClick={() => updatePatch({ concurrency: settings.concurrency - 1 })}
+              disabled={settings.concurrency <= 1}
+              onClick={() => handleStepConcurrency(-1)}
               aria-label={strings.a11y.decreaseConcurrency}
             >
               -
@@ -319,8 +360,8 @@ export const SettingsPage: React.FC = () => {
             <button
               type="button"
               className={styles.stepperBtn}
-              disabled={settings.concurrency >= 8 || isSaving}
-              onClick={() => updatePatch({ concurrency: settings.concurrency + 1 })}
+              disabled={settings.concurrency >= 8}
+              onClick={() => handleStepConcurrency(1)}
               aria-label={strings.a11y.increaseConcurrency}
             >
               +
@@ -346,11 +387,14 @@ export const SettingsPage: React.FC = () => {
               type="button"
               role="radio"
               aria-checked={settings.preferredQuality === "bestAvailable"}
-              disabled={isSaving}
               className={`${styles.segmentBtn} ${
                 settings.preferredQuality === "bestAvailable" ? styles.segmentBtnActive : ""
               }`}
-              onClick={() => updatePatch({ preferredQuality: "bestAvailable" as QualityPreference })}
+              onClick={() => {
+                if (settings.preferredQuality !== "bestAvailable") {
+                  updatePatch({ preferredQuality: "bestAvailable" as QualityPreference });
+                }
+              }}
             >
               {strings.settings.qualityBest}
             </button>
@@ -358,11 +402,14 @@ export const SettingsPage: React.FC = () => {
               type="button"
               role="radio"
               aria-checked={settings.preferredQuality === "mp3"}
-              disabled={isSaving}
               className={`${styles.segmentBtn} ${
                 settings.preferredQuality === "mp3" ? styles.segmentBtnActive : ""
               }`}
-              onClick={() => updatePatch({ preferredQuality: "mp3" as QualityPreference })}
+              onClick={() => {
+                if (settings.preferredQuality !== "mp3") {
+                  updatePatch({ preferredQuality: "mp3" as QualityPreference });
+                }
+              }}
             >
               {strings.settings.qualityMp3}
             </button>
@@ -377,7 +424,6 @@ export const SettingsPage: React.FC = () => {
           <Switch
             checked={settings.downloadArtwork}
             onCheckedChange={(checked) => updatePatch({ downloadArtwork: checked })}
-            disabled={isSaving}
             ariaLabel={strings.settings.artworkLabel}
           />
         </div>
@@ -390,7 +436,6 @@ export const SettingsPage: React.FC = () => {
           <Switch
             checked={settings.skipVerifiedFiles}
             onCheckedChange={(checked) => updatePatch({ skipVerifiedFiles: checked })}
-            disabled={isSaving}
             ariaLabel={strings.settings.skipVerifiedLabel}
           />
         </div>
@@ -416,9 +461,12 @@ export const SettingsPage: React.FC = () => {
               type="button"
               role="radio"
               aria-checked={languageSetting === "zh-cn"}
-              disabled={isSaving}
               className={`${styles.segmentBtn} ${languageSetting === "zh-cn" ? styles.segmentBtnActive : ""}`}
-              onClick={() => updatePatch({ language: "zh-cn" as LanguagePreference })}
+              onClick={() => {
+                if (languageSetting !== "zh-cn") {
+                  updatePatch({ language: "zh-cn" as LanguagePreference });
+                }
+              }}
             >
               {strings.settings.languageZhCn}
             </button>
@@ -426,9 +474,12 @@ export const SettingsPage: React.FC = () => {
               type="button"
               role="radio"
               aria-checked={languageSetting === "en"}
-              disabled={isSaving}
               className={`${styles.segmentBtn} ${languageSetting === "en" ? styles.segmentBtnActive : ""}`}
-              onClick={() => updatePatch({ language: "en" as LanguagePreference })}
+              onClick={() => {
+                if (languageSetting !== "en") {
+                  updatePatch({ language: "en" as LanguagePreference });
+                }
+              }}
             >
               {strings.settings.languageEn}
             </button>
@@ -445,9 +496,12 @@ export const SettingsPage: React.FC = () => {
               type="button"
               role="radio"
               aria-checked={themeSetting === "system"}
-              disabled={isSaving}
               className={`${styles.segmentBtn} ${themeSetting === "system" ? styles.segmentBtnActive : ""}`}
-              onClick={() => updatePatch({ theme: "system" as ThemePreference })}
+              onClick={() => {
+                if (themeSetting !== "system") {
+                  updatePatch({ theme: "system" as ThemePreference });
+                }
+              }}
             >
               {strings.settings.themeSystem}
             </button>
@@ -455,9 +509,12 @@ export const SettingsPage: React.FC = () => {
               type="button"
               role="radio"
               aria-checked={themeSetting === "light"}
-              disabled={isSaving}
               className={`${styles.segmentBtn} ${themeSetting === "light" ? styles.segmentBtnActive : ""}`}
-              onClick={() => updatePatch({ theme: "light" as ThemePreference })}
+              onClick={() => {
+                if (themeSetting !== "light") {
+                  updatePatch({ theme: "light" as ThemePreference });
+                }
+              }}
             >
               {strings.settings.themeLight}
             </button>
@@ -465,9 +522,12 @@ export const SettingsPage: React.FC = () => {
               type="button"
               role="radio"
               aria-checked={themeSetting === "dark"}
-              disabled={isSaving}
               className={`${styles.segmentBtn} ${themeSetting === "dark" ? styles.segmentBtnActive : ""}`}
-              onClick={() => updatePatch({ theme: "dark" as ThemePreference })}
+              onClick={() => {
+                if (themeSetting !== "dark") {
+                  updatePatch({ theme: "dark" as ThemePreference });
+                }
+              }}
             >
               {strings.settings.themeDark}
             </button>
